@@ -1,0 +1,95 @@
+{
+  "$id": "https://github.com/data-fair/processing-schemas-datagouv/processing-config",
+  "type": "object",
+  "title": "ProcessingConfig",
+  "layout": "tabs",
+  "allOf": [
+    {
+      "title": "Schémas",
+      "description": "Chaque schéma tabulaire importé produit un jeu de données éditable, dont le schéma est initialisé depuis la dernière version publiée sur [schema.data.gouv.fr](https://schema.data.gouv.fr).",
+      "default": {
+        "importMode": "select"
+      },
+      "oneOf": [
+        {
+          "title": "Choisir des schémas",
+          "required": ["importMode", "schemas"],
+          "properties": {
+            "importMode": {
+              "type": "string",
+              "const": "select",
+              "title": "Mode d'import"
+            },
+            "schemas": {
+              "type": "array",
+              "title": "Schémas à importer",
+              "description": "Un jeu de données éditable est créé ou mis à jour par schéma sélectionné. Seuls les schémas de type « table schema » sont importables, les autres entrées du catalogue sont ignorées.",
+              "minItems": 1,
+              "items": {
+                "type": "string"
+              },
+              "layout": {
+                "getItems": {
+                  "url": "https://schema.data.gouv.fr/schemas.json",
+                  "itemsResults": "data.schemas",
+                  "itemKey": "item.name",
+                  "itemTitle": "item.title",
+                  "itemSubtitle": "item.name"
+                }
+              }
+            }
+          }
+        },
+        {
+          "title": "Importer tous les schémas tabulaires",
+          "required": ["importMode"],
+          "properties": {
+            "importMode": {
+              "type": "string",
+              "const": "all",
+              "title": "Mode d'import"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "title": "Options",
+      "properties": {
+        "loadExample": {
+          "type": "boolean",
+          "title": "Charger les données d'exemple",
+          "description": "Lors de la création d'un jeu de données, charge les données d'exemple publiées avec le schéma (s'il en a une) comme premières lignes. Aucune donnée n'est rechargée lors des mises à jour, pour ne pas écraser vos ajouts.",
+          "default": true
+        },
+        "createdDatasets": {
+          "type": "array",
+          "title": "Jeux de données créés",
+          "description": "Suivi technique des jeux de données produits par ce traitement, un par schéma importé. À chaque exécution, ces jeux sont mis à jour au lieu d'en créer de nouveaux.",
+          "readOnly": true,
+          "items": {
+            "type": "object",
+            "properties": {
+              "schemaName": {
+                "type": "string",
+                "title": "Schéma"
+              },
+              "version": {
+                "type": "string",
+                "title": "Version du schéma"
+              },
+              "datasetId": {
+                "type": "string",
+                "title": "Identifiant du jeu de données"
+              },
+              "datasetTitle": {
+                "type": "string",
+                "title": "Titre du jeu de données"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

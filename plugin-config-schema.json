@@ -1,0 +1,5 @@
+{
+  "$id": "https://github.com/data-fair/processing-schemas-datagouv/plugin-config",
+  "type": "object",
+  "title": "PluginConfig"
+}

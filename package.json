@@ -1,0 +1,55 @@
+{
+  "name": "@data-fair/processing-schemas-datagouv",
+  "version": "0.1.0",
+  "description": "Importe et met à jour les schémas tabulaires de schema.data.gouv.fr comme jeux de données éditables data-fair",
+  "main": "index.ts",
+  "type": "module",
+  "scripts": {
+    "lint": "eslint .",
+    "lint-fix": "eslint --fix .",
+    "prepare": "husky || true",
+    "build-types": "export NODE_OPTIONS='--experimental-strip-types' && df-build-types ./",
+    "test-base": "NODE_ENV=test node --experimental-strip-types --test-force-exit --test-concurrency=1 --test --test-reporter=spec --test-reporter-destination=stdout",
+    "test": "npm run test-base test-it/*.ts"
+  },
+  "imports": {
+    "#config": "./lib/config.ts",
+    "#types/*": "./types/*"
+  },
+  "files": [
+    "plugin-config-schema.json",
+    "processing-config-schema.json",
+    "./lib/**/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/data-fair/processing-schemas-datagouv.git"
+  },
+  "keywords": [
+    "data-fair-processings-plugin"
+  ],
+  "author": "Koumoul <contact@koumoul.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/data-fair/processing-schemas-datagouv/issues"
+  },
+  "homepage": "https://github.com/data-fair/processing-schemas-datagouv#readme",
+  "dependencies": {
+    "form-data": "^4.0.5"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^20.4.2",
+    "@commitlint/config-conventional": "^20.4.2",
+    "@data-fair/lib-common-types": "^1.20.6",
+    "@data-fair/lib-processing-dev": "^0.3.0",
+    "@data-fair/lib-types-builder": "^1.11.3",
+    "@data-fair/lib-utils": "^1.11.0",
+    "@types/node": "^22.10.5",
+    "config": "^4.4.1",
+    "eslint": "^9.26.0",
+    "husky": "^9.1.7",
+    "neostandard": "^0.12.1",
+    "typescript": "^5.8.3",
+    "ws": "^8.21.3"
+  }
+}
