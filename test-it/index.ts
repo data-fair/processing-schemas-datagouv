@@ -4,6 +4,8 @@ import testUtils from '@data-fair/lib-processing-dev/tests-utils.js'
 import processingConfigSchema from '../processing-config-schema.json' with { type: 'json' }
 import * as schemasDatagouv from '../index.ts'
 import { convertField, convertTableSchema } from '../lib/convert.ts'
+import { mergeConcepts } from '../lib/concepts.ts'
+import { datasetTitle, needsTitleRepair } from '../lib/datasets.ts'
 import { latestVersion, tabularEntries } from '../lib/catalog.ts'
 
 // #config refuses to load without a data-fair instance declared in
@@ -100,6 +102,107 @@ describe('processing-schemas-datagouv', () => {
     it('rejette les doublons et les schémas vides', () => {
       assert.throws(() => convertTableSchema({ fields: [] }), /aucun champ/)
       assert.throws(() => convertTableSchema({ fields: [{ name: 'a' }, { name: 'a' }] }), /plusieurs fois/)
+    })
+  })
+
+  describe('annotation des concepts', () => {
+    it('annote les champs reconnus par leur nom', () => {
+      const { schema } = convertTableSchema({
+        fields: [
+          { name: 'nom_du_site', type: 'string' },
+          { name: 'latitude', type: 'number' },
+          { name: 'longitude', type: 'number' },
+          { name: 'code_insee', type: 'string' },
+          { name: 'date_maj', type: 'date' },
+          { name: 'siret', type: 'string' }
+        ]
+      })
+      const byKey = Object.fromEntries(schema.map(p => [p.key, p]))
+      assert.equal(byKey.nom_du_site['x-refersTo'], 'http://www.w3.org/2000/01/rdf-schema#label')
+      assert.equal(byKey.latitude['x-refersTo'], 'http://schema.org/latitude')
+      assert.equal(byKey.longitude['x-refersTo'], 'http://schema.org/longitude')
+      assert.equal(byKey.code_insee['x-refersTo'], 'http://rdf.insee.fr/def/geo#codeCommune')
+      assert.equal(byKey.date_maj['x-refersTo'], 'http://schema.org/Date')
+      assert.equal(byKey.siret['x-refersTo'], 'http://www.datatourisme.fr/ontology/core/1.0/#siret')
+    })
+
+    it('utilise le titre en repli et ignore les accents', () => {
+      const { schema } = convertTableSchema({
+        fields: [
+          { name: 'contact_tel', title: 'Téléphone', type: 'string' },
+          { name: 'champ_geo', title: 'Géométrie', type: 'string' }
+        ]
+      })
+      assert.equal(schema[0]['x-refersTo'], 'https://www.w3.org/2006/vcard/ns#tel')
+      assert.equal(schema[1]['x-refersTo'], 'https://purl.org/geojson/vocab#geometry')
+    })
+
+    it('respecte la compatibilité de type du concept', () => {
+      const { schema } = convertTableSchema({
+        fields: [
+          { name: 'latitude', type: 'string' },
+          { name: 'date_maj', type: 'string' },
+          { name: 'annee', type: 'integer' }
+        ]
+      })
+      assert.equal(schema[0]['x-refersTo'], undefined)
+      assert.equal(schema[1]['x-refersTo'], undefined)
+      assert.equal(schema[2]['x-refersTo'], 'https://www.w3.org/TR/owl-time/#time:year')
+    })
+
+    it('n\'annote qu\'un seul champ par concept', () => {
+      const { schema } = convertTableSchema({
+        fields: [
+          { name: 'nom', type: 'string' },
+          { name: 'name', type: 'string' }
+        ]
+      })
+      assert.equal(schema[0]['x-refersTo'], 'http://www.w3.org/2000/01/rdf-schema#label')
+      assert.equal(schema[1]['x-refersTo'], undefined)
+    })
+
+    it('n\'annote pas les champs sans correspondance', () => {
+      const { schema } = convertTableSchema({ fields: [{ name: 'date_decision', title: 'Date de décision', type: 'date' }] })
+      assert.equal(schema[0]['x-refersTo'], undefined)
+    })
+  })
+
+  describe('titre des jeux de données', () => {
+    it('ne double pas un préfixe Schéma déjà présent', () => {
+      assert.equal(datasetTitle('Schéma des fontaines à eau'), 'Schéma des fontaines à eau')
+      assert.equal(datasetTitle('Schéma directeur des IRVE'), 'Schéma directeur des IRVE')
+      assert.equal(datasetTitle('IRVE statique'), 'Schéma IRVE statique')
+      assert.equal(datasetTitle(' Atlas Paysager'), 'Schéma Atlas Paysager')
+    })
+
+    it('détecte uniquement le titre buggy à préfixe doublé', () => {
+      assert.equal(needsTitleRepair('Schéma Schéma des fontaines à eau', 'Schéma des fontaines à eau'), true)
+      assert.equal(needsTitleRepair('schema schema pour les passages à niveau', 'Schéma pour les passages à niveau'), true)
+      assert.equal(needsTitleRepair('Mon titre personnalisé', 'Schéma des fontaines à eau'), false)
+      assert.equal(needsTitleRepair('Schéma IRVE statique', 'Schéma IRVE statique'), false)
+    })
+  })
+
+  describe('fusion des concepts dans un schéma existant', () => {
+    it('ajoute les concepts absents sans toucher au reste', () => {
+      const live = [
+        { key: 'nom', type: 'string', title: 'Nom' },
+        { key: 'latitude', type: 'number', 'x-refersTo': 'http://schema.org/latitude', 'x-capabilities': { index: true } }
+      ]
+      const desired = [
+        { key: 'nom', type: 'string', title: 'Nom', 'x-refersTo': 'http://www.w3.org/2000/01/rdf-schema#label' },
+        { key: 'latitude', type: 'number', 'x-refersTo': 'http://schema.org/latitude' }
+      ]
+      const merged = mergeConcepts(live, desired)
+      assert.ok(merged)
+      assert.equal(merged![0]['x-refersTo'], 'http://www.w3.org/2000/01/rdf-schema#label')
+      assert.equal(merged![1]['x-refersTo'], 'http://schema.org/latitude')
+      assert.deepEqual(merged![1]['x-capabilities'], { index: true })
+    })
+
+    it('retourne null si rien ne change', () => {
+      const schema = [{ key: 'nom', type: 'string', 'x-refersTo': 'http://www.w3.org/2000/01/rdf-schema#label' }]
+      assert.equal(mergeConcepts(schema, schema), null)
     })
   })
 

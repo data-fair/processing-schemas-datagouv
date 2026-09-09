@@ -14,6 +14,25 @@ export const describeError = (err: any): string => {
   return body ? `${err.message} : ${body}` : err.message
 }
 
+const SCHEMA_TITLE_RE = /^sch[ée]ma\b/i
+const DOUBLED_SCHEMA_TITLE_RE = /^sch[ée]ma\s+sch[ée]ma\b/i
+
+/**
+ * Titre du jeu de données porteur d'un schéma du catalogue.
+ * Certains titres du catalogue commencent déjà par « Schéma » : ne pas doubler le préfixe.
+ */
+export const datasetTitle = (catalogTitle: string): string => {
+  const trimmed = catalogTitle.trim()
+  return SCHEMA_TITLE_RE.test(trimmed) ? trimmed : `Schéma ${trimmed}`
+}
+
+/**
+ * Le titre historiquement buggy « Schéma Schéma... » est réparé, mais pas les titres
+ * personnalisés par le propriétaire du jeu de données.
+ */
+export const needsTitleRepair = (liveTitle: string, expectedTitle: string): boolean =>
+  liveTitle.trim() !== expectedTitle && DOUBLED_SCHEMA_TITLE_RE.test(liveTitle.trim())
+
 export interface CreateDatasetPayload {
   title: string
   description?: string

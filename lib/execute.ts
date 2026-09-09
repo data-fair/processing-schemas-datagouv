@@ -2,7 +2,8 @@ import type { ProcessingContext } from '@data-fair/lib-common-types/processings.
 import type { ProcessingConfig } from '#types/processingConfig/index.ts'
 import { fetchCatalog, fetchJSON, latestVersion, tabularEntries, type CatalogEntry } from './catalog.ts'
 import { convertTableSchema } from './convert.ts'
-import { createSchemaDataset, describeError, getDataset, loadExampleData, patchSchemaDataset } from './datasets.ts'
+import { mergeConcepts } from './concepts.ts'
+import { createSchemaDataset, datasetTitle, describeError, getDataset, loadExampleData, needsTitleRepair, patchSchemaDataset } from './datasets.ts'
 
 let shouldBeStopped = false
 
@@ -83,6 +84,7 @@ const importSchema = async (
 ) => {
   const version = latestVersion(entry)
   const known = tracked.find(t => t.schemaName === entry.name)
+  const expectedTitle = datasetTitle(entry.title)
 
   await log.info(`Schéma "${entry.title}" (${entry.name}) : dernière version ${version.version_name}${known ? `, jeu de données "${known.datasetTitle}" (${known.datasetId})` : ', nouveau jeu de données'}`)
   const tableSchema = await fetchJSON(version.schema_url)
@@ -97,20 +99,44 @@ const importSchema = async (
       await log.warning(`Le jeu de données "${known.datasetTitle}" (${known.datasetId}) n'existe plus, il sera recréé.`)
       tracked.splice(tracked.indexOf(known), 1)
     } else if (live.conformsTo?.version === version.version_name) {
-      counts.unchanged++
-      // le fichier d'un schéma est immuable pour une version donnée : seul le mode
-      // master data est réparé s'il a été perdu (et jamais s'il a été désactivé volontairement)
-      if (!live.masterData) {
-        await patchSchemaDataset(axios, known.datasetId, { masterData: { standardSchema: { active: true } } }, known.datasetTitle)
-        await log.info(`Initialisation de jeux éditables réactivée sur "${known.datasetTitle}"`)
+      // le fichier d'un schéma est immuable pour une version donnée : en dehors d'une
+      // nouvelle version, on ne répare que ce qui a été perdu (mode master data) ou créé
+      // historiquement (titre préfixé en double, concepts absents) — jamais les
+      // personnalisations du propriétaire du jeu de données
+      const repair: Record<string, unknown> = {}
+      const mergedSchema = mergeConcepts(live.schema ?? [], schema)
+      if (mergedSchema) repair.schema = mergedSchema
+      if (needsTitleRepair(live.title ?? '', expectedTitle)) repair.title = expectedTitle
+      if (repair.schema || repair.title) {
+        if (!live.masterData) repair.masterData = { standardSchema: { active: true } }
+        await patchSchemaDataset(axios, known.datasetId, repair, known.datasetTitle)
+        const reasons = [repair.title ? 'titre corrigé' : null, repair.schema ? 'concepts ajoutés' : null].filter(Boolean).join(', ')
+        await log.info(`Jeu de données "${known.datasetTitle}" réparé (${reasons})`)
+        counts.updated++
+        if (repair.title) {
+          known.datasetTitle = expectedTitle
+          await patchConfig({ createdDatasets: tracked.map(t => ({ ...t })) } as any)
+        }
+      } else {
+        counts.unchanged++
+        // le mode master data est réparé s'il a été perdu, jamais s'il a été désactivé volontairement
+        if (!live.masterData) {
+          await patchSchemaDataset(axios, known.datasetId, { masterData: { standardSchema: { active: true } } }, known.datasetTitle)
+          await log.info(`Initialisation de jeux éditables réactivée sur "${known.datasetTitle}"`)
+        }
       }
       return
     } else {
       const patch: Record<string, unknown> = { schema, conformsTo, origin }
       if (primaryKey?.length) patch.primaryKey = primaryKey
       if (!live.masterData) patch.masterData = { standardSchema: { active: true } }
+      if (needsTitleRepair(live.title ?? '', expectedTitle)) {
+        patch.title = expectedTitle
+        await log.info(`Titre du jeu de données corrigé en "${expectedTitle}"`)
+      }
       await patchSchemaDataset(axios, known.datasetId, patch, known.datasetTitle)
       known.version = version.version_name
+      if (patch.title) known.datasetTitle = expectedTitle
       counts.updated++
       await log.info(`Jeu de données "${known.datasetTitle}" mis à jour vers la version ${version.version_name}`)
       await patchConfig({ createdDatasets: tracked.map(t => ({ ...t })) } as any)
@@ -119,7 +145,7 @@ const importSchema = async (
   }
 
   const payload = {
-    title: `Schéma ${entry.title}`,
+    title: expectedTitle,
     description: [entry.description, `Schéma importé de [schema.data.gouv.fr](https://schema.data.gouv.fr), version ${version.version_name}.`].filter(Boolean).join('\n\n'),
     schema,
     primaryKey,

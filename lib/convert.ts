@@ -1,7 +1,9 @@
 /**
  * Conversion d'un table schema frictionless (format des schémas tabulaires de
- * schema.data.gouv.fr) en propriétés de schéma data-fair.
+ * schema.data.gouv.fr) en propriétés de schéma data-fair, annotées au maximum
+ * avec les concepts reconnus par la plateforme.
  */
+import { applyConcepts } from './concepts.ts'
 
 export interface TableSchemaField {
   name: string
@@ -37,6 +39,7 @@ export interface DatasetSchemaProperty {
   format?: string
   'x-originalName': string
   'x-required'?: boolean
+  'x-refersTo'?: string
   minLength?: number
   maxLength?: number
   minimum?: number
@@ -105,6 +108,7 @@ export const convertTableSchema = (tableSchema: TableSchema): { schema: DatasetS
     seen.add(field.name)
   }
   const schema = tableSchema.fields.map(convertField)
+  applyConcepts(schema)
 
   let primaryKey: string[] | undefined
   if (tableSchema.primaryKey) {
