@@ -74,8 +74,9 @@
           },
           "layout": {
             "children": [
+              "action",
               {
-                "markdown": "**Action destructrice.** À la prochaine exécution, supprime définitivement tous les jeux de données créés par ce traitement, y compris leurs personnalisations (données, permissions, métadonnées). L'action repasse ensuite sur « importer » et l'exécution s'arrête sans rien importer.\n\nSi ce traitement est planifié et que des schémas restent sélectionnés, les jeux seront recréés à l'exécution suivante : désélectionnez les schémas ou supprimez le traitement pour un arrêt définitif.\n\nUn jeu déjà supprimé manuellement est ignoré. En cas d'échec, les jeux restants sont conservés et l'action sera retentée à l'exécution suivante."
+                "markdown": "**Action destructrice.** À la prochaine exécution, supprime définitivement tous les jeux de données créés par ce traitement, y compris leurs personnalisations (données, permissions, métadonnées). L'action repasse ensuite sur « importer » et l'exécution s'arrête sans rien importer.\n\nLa sélection des schémas est effacée au passage : si ce traitement est planifié, resélectionnez des schémas après le nettoyage pour reprendre les imports, ou supprimez le traitement pour un arrêt définitif.\n\nUn jeu déjà supprimé manuellement est ignoré. En cas d'échec, les jeux restants sont conservés et l'action sera retentée à l'exécution suivante."
               }
             ]
           }
