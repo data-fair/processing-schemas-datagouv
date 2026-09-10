@@ -87,6 +87,7 @@ describe('exécution : création', () => {
     assert.deepEqual(created[0].schema.find((p: any) => p.key === 'siret')['x-capabilities'], { text: false, insensitive: false })
     assert.deepEqual(created[0].schema.find((p: any) => p.key === 'code_insee')['x-capabilities'], { text: false, insensitive: false })
     assert.equal(created[0].masterData.standardSchema.active, true)
+    assert.equal(created[0].extras['schema-datagouv'].processingId, 'test-processing')
 
     assert.equal(bulkPosts.length, 1)
     const tracked = (context.processingConfig as any).createdDatasets
@@ -338,12 +339,73 @@ describe('exécution : suppression', () => {
 
   it('ne fait rien s\'il n\'y a aucun jeu suivi', async () => {
     let deleted = 0
-    const axios = fakeAxios({ delete: async () => { deleted++ } })
+    const axios = fakeAxios({
+      get: async () => ({ results: [] }),
+      delete: async () => { deleted++ }
+    })
     const { context } = fakeContext({ processingConfig: { action: 'delete' }, axios })
 
     await withFetch(noFetch, () => run(context))
 
     assert.equal(deleted, 0)
     assert.equal((context.processingConfig as any).action, 'import')
+  })
+
+  it('retrouve les jeux créés via leurs métadonnées quand le suivi est vide', async () => {
+    const deleted: string[] = []
+    const axios = fakeAxios({
+      get: async url => {
+        assert.match(url, /^api\/v1\/datasets\?.*select=id,title,extras/)
+        return {
+          results: [
+            { id: 'ds1', title: 'Schéma A', extras: { 'schema-datagouv': { name: 'test/schema-a', version: '1.1.0' } } },
+            { id: 'ds2', title: 'Schéma B', extras: { 'schema-datagouv': { name: 'test/schema-b', version: '1.0.0', processingId: 'test-processing' } } },
+            { id: 'ds3', title: 'Autre', extras: {} }
+          ]
+        }
+      },
+      delete: async url => { deleted.push(url) }
+    })
+    const { context, logs } = fakeContext({ processingConfig: { action: 'delete' }, axios })
+
+    await withFetch(noFetch, () => run(context))
+
+    assert.deepEqual(deleted.sort(), ['api/v1/datasets/ds1', 'api/v1/datasets/ds2'])
+    assert.deepEqual((context.processingConfig as any).createdDatasets, [])
+    assert.equal((context.processingConfig as any).action, 'import')
+    assert.ok(logs.some(entry => entry.level === 'warning' && entry.message.includes('métadonnées')))
+  })
+
+  it('ignore les jeux suivis par un autre traitement', async () => {
+    let deleted = 0
+    const axios = fakeAxios({
+      get: async () => ({
+        results: [{
+          id: 'ds1',
+          title: 'Schéma A',
+          extras: { 'schema-datagouv': { name: 'test/schema-a', version: '1.1.0', processingId: 'autre-traitement' } }
+        }]
+      }),
+      delete: async () => { deleted++ }
+    })
+    const { context } = fakeContext({ processingConfig: { action: 'delete' }, axios })
+
+    await withFetch(noFetch, () => run(context))
+
+    assert.equal(deleted, 0)
+    assert.equal((context.processingConfig as any).action, 'import')
+  })
+
+  it('ne recherche pas les jeux quand le suivi est renseigné', async () => {
+    let gets = 0
+    const axios = fakeAxios({
+      get: async () => { gets++; return { results: [] } },
+      delete: async () => {}
+    })
+    const { context } = fakeContext({ processingConfig: deletedConfig(), axios })
+
+    await withFetch(noFetch, () => run(context))
+
+    assert.equal(gets, 0)
   })
 })

@@ -26,7 +26,7 @@ export interface TrackedDataset {
 
 export const run = async (context: ProcessingContext<ProcessingConfig>) => {
   shouldBeStopped = false
-  const { processingConfig, axios, log, patchConfig } = context
+  const { processingConfig, axios, log, patchConfig, processingId } = context
   const config = processingConfig as any
 
   if (config.action === 'delete') {
@@ -64,7 +64,7 @@ export const run = async (context: ProcessingContext<ProcessingConfig>) => {
         counts.skipped++
         continue
       }
-      await importSchema(entry, { config, tracked, axios, log, patchConfig }, counts)
+      await importSchema(entry, { config, tracked, axios, log, patchConfig, processingId }, counts)
     } catch (err: any) {
       counts.failed++
       await log.error(`Échec de l'import du schéma "${entry.name}"`, describeError(err))
@@ -92,15 +92,18 @@ export const run = async (context: ProcessingContext<ProcessingConfig>) => {
  * nettoyage terminé.
  */
 const deleteCreatedDatasets = async (context: ProcessingContext<ProcessingConfig>) => {
-  const { processingConfig, axios, log, patchConfig } = context
+  const { processingConfig, axios, log, patchConfig, processingId } = context
   const config = processingConfig as any
-  const tracked: TrackedDataset[] = [...(config.createdDatasets ?? [])]
+  let tracked: TrackedDataset[] = [...(config.createdDatasets ?? [])]
 
   await log.step('Suppression des jeux de données créés')
   if (!tracked.length) {
-    await log.info('Aucun jeu de données créé par ce traitement à supprimer.')
-    await patchConfig({ action: 'import' } as any)
-    return
+    tracked = await discoverCreatedDatasets(axios, processingId, log)
+    if (!tracked.length) {
+      await log.info('Aucun jeu de données créé par ce traitement à supprimer.')
+      await patchConfig({ action: 'import' } as any)
+      return
+    }
   }
 
   const remaining: TrackedDataset[] = []
@@ -142,6 +145,54 @@ const deleteCreatedDatasets = async (context: ProcessingContext<ProcessingConfig
   if (failed) throw new Error(`${failed} jeu(x) de données n'ont pas pu être supprimé(s), consultez le journal.`)
 }
 
+const DISCOVERY_PAGE_SIZE = 1000
+const DISCOVERY_MAX_PAGES = 10
+
+/**
+ * Retrouve les jeux de données créés par ce traitement via leurs métadonnées
+ * `extras['schema-datagouv']`.
+ *
+ * Utilisé en secours quand le suivi `createdDatasets` est vide : une sauvegarde du
+ * formulaire de configuration purgeait ce champ readOnly avant qu'il ne soit
+ * explicitement conservé par le schéma.
+ */
+const discoverCreatedDatasets = async (
+  axios: ProcessingContext['axios'],
+  processingId: string,
+  log: ProcessingContext['log']
+): Promise<TrackedDataset[]> => {
+  const found: TrackedDataset[] = []
+  try {
+    for (let page = 1; page <= DISCOVERY_MAX_PAGES; page++) {
+      const { data } = await axios.get(`api/v1/datasets?type=rest&select=id,title,extras&size=${DISCOVERY_PAGE_SIZE}&page=${page}&count=false`)
+      const results: any[] = data?.results ?? []
+      for (const dataset of results) {
+        const extra = dataset.extras?.['schema-datagouv']
+        if (!extra?.name) continue
+        // les jeux d'un autre traitement sont laissés en place ; les jeux historiques
+        // sans processingId sont repris pour ne pas laisser de doublons orphelins
+        if (extra.processingId && extra.processingId !== processingId) continue
+        found.push({
+          schemaName: extra.name,
+          version: extra.version ?? '',
+          datasetId: dataset.id,
+          datasetTitle: dataset.title
+        })
+      }
+      if (results.length < DISCOVERY_PAGE_SIZE) break
+      if (page === DISCOVERY_MAX_PAGES) {
+        await log.warning(`Recherche des jeux de données interrompue après ${DISCOVERY_MAX_PAGES * DISCOVERY_PAGE_SIZE} jeux : certains jeux créés pourraient ne pas être supprimés par cette exécution.`)
+      }
+    }
+  } catch (err: any) {
+    throw new Error(`Échec de la recherche des jeux de données créés : ${describeError(err)}`)
+  }
+  if (found.length) {
+    await log.warning(`${found.length} jeu(x) de données retrouvé(s) via leurs métadonnées, le suivi du traitement étant vide : ils seront supprimés.`)
+  }
+  return found
+}
+
 const capabilitiesOptions = (config: any): CapabilitiesOptions => ({
   mode: config.capabilitiesMode === 'standard' ? 'standard' : 'auto',
   textSearchOnCodes: config.textSearchOnCodes === true,
@@ -162,7 +213,7 @@ const previousVersion = (live: any, entry: CatalogEntry, fallbackVersion: string
 
 const importSchema = async (
   entry: CatalogEntry,
-  { config, tracked, axios, log, patchConfig }: { config: any, tracked: TrackedDataset[], axios: ProcessingContext['axios'], log: ProcessingContext['log'], patchConfig: ProcessingContext['patchConfig'] },
+  { config, tracked, axios, log, patchConfig, processingId }: { config: any, tracked: TrackedDataset[], axios: ProcessingContext['axios'], log: ProcessingContext['log'], patchConfig: ProcessingContext['patchConfig'], processingId: string },
   counts: { created: number, updated: number, unchanged: number, skipped: number, failed: number }
 ) => {
   const version = latestVersion(entry)
@@ -237,7 +288,7 @@ const importSchema = async (
     primaryKey,
     conformsTo,
     origin,
-    extras: { 'schema-datagouv': { name: entry.name, version: version.version_name, schemaUrl: version.schema_url } }
+    extras: { 'schema-datagouv': { name: entry.name, version: version.version_name, schemaUrl: version.schema_url, processingId } }
   }
   const dataset = await createSchemaDataset(axios, payload, log)
   tracked.push({ schemaName: entry.name, version: version.version_name, datasetId: dataset.id, datasetTitle: dataset.title })

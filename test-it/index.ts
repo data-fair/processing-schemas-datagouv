@@ -21,7 +21,10 @@ describe('processing-schemas-datagouv', () => {
   it('expose son schéma de configuration', () => {
     assert.ok(processingConfigSchema)
     assert.equal(processingConfigSchema.type, 'object')
-    assert.equal(processingConfigSchema.layout, 'tabs')
+    assert.equal(processingConfigSchema.layout.comp, 'tabs')
+    // l'UI monte vjsf avec readOnlyPropertiesMode "remove" : sans cette surcharge,
+    // toute sauvegarde de la config purge le suivi createdDatasets
+    assert.equal(processingConfigSchema.layout.readOnlyPropertiesMode, 'hide')
   })
 
   it('expose les hooks attendus par la plateforme', () => {

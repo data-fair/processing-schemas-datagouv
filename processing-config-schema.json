@@ -2,7 +2,10 @@
   "$id": "https://github.com/data-fair/processing-schemas-datagouv/processing-config",
   "type": "object",
   "title": "ProcessingConfig",
-  "layout": "tabs",
+  "layout": {
+    "comp": "tabs",
+    "readOnlyPropertiesMode": "hide"
+  },
   "allOf": [
     {
       "title": "Action",
