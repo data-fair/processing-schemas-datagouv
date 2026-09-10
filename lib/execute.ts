@@ -155,6 +155,10 @@ const DISCOVERY_MAX_PAGES = 10
  * Utilisé en secours quand le suivi `createdDatasets` est vide : une sauvegarde du
  * formulaire de configuration purgeait ce champ readOnly avant qu'il ne soit
  * explicitement conservé par le schéma.
+ *
+ * Seuls les jeux portant le `processingId` de ce traitement sont repris : sans cette
+ * vérification, tous les jeux marqués mais créés par un autre traitement ou une
+ * version antérieure du plugin (sans processingId) seraient supprimés à tort.
  */
 const discoverCreatedDatasets = async (
   axios: ProcessingContext['axios'],
@@ -162,6 +166,7 @@ const discoverCreatedDatasets = async (
   log: ProcessingContext['log']
 ): Promise<TrackedDataset[]> => {
   const found: TrackedDataset[] = []
+  const withoutProcessingId: TrackedDataset[] = []
   try {
     for (let page = 1; page <= DISCOVERY_MAX_PAGES; page++) {
       const { data } = await axios.get(`api/v1/datasets?type=rest&select=id,title,extras&size=${DISCOVERY_PAGE_SIZE}&page=${page}&count=false`)
@@ -169,15 +174,17 @@ const discoverCreatedDatasets = async (
       for (const dataset of results) {
         const extra = dataset.extras?.['schema-datagouv']
         if (!extra?.name) continue
-        // les jeux d'un autre traitement sont laissés en place ; les jeux historiques
-        // sans processingId sont repris pour ne pas laisser de doublons orphelins
-        if (extra.processingId && extra.processingId !== processingId) continue
-        found.push({
+        const candidate: TrackedDataset = {
           schemaName: extra.name,
           version: extra.version ?? '',
           datasetId: dataset.id,
           datasetTitle: dataset.title
-        })
+        }
+        // seuls les jeux portant le processingId de ce traitement sont supprimés ; ceux
+        // d'un autre traitement sont laissés en place, et ceux sans processingId
+        // (imports antérieurs à son introduction) sont signalés pour un traitement manuel
+        if (extra.processingId === processingId) found.push(candidate)
+        else if (!extra.processingId) withoutProcessingId.push(candidate)
       }
       if (results.length < DISCOVERY_PAGE_SIZE) break
       if (page === DISCOVERY_MAX_PAGES) {
@@ -189,6 +196,12 @@ const discoverCreatedDatasets = async (
   }
   if (found.length) {
     await log.warning(`${found.length} jeu(x) de données retrouvé(s) via leurs métadonnées, le suivi du traitement étant vide : ils seront supprimés.`)
+  }
+  if (withoutProcessingId.length) {
+    await log.warning(`${withoutProcessingId.length} jeu(x) de données marqué(s) "schema-datagouv" mais sans processingId ne sont pas supprimés par ce traitement : vérifiez-les et supprimez-les manuellement si nécessaire.`)
+    for (const orphan of withoutProcessingId) {
+      await log.warning(`Jeu conservé faute de processingId : "${orphan.datasetTitle}" (${orphan.datasetId}), schéma "${orphan.schemaName}"`)
+    }
   }
   return found
 }

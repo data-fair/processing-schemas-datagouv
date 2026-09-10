@@ -370,10 +370,32 @@ describe('exécution : suppression', () => {
 
     await withFetch(noFetch, () => run(context))
 
-    assert.deepEqual(deleted.sort(), ['api/v1/datasets/ds1', 'api/v1/datasets/ds2'])
+    assert.deepEqual(deleted, ['api/v1/datasets/ds2'])
     assert.deepEqual((context.processingConfig as any).createdDatasets, [])
     assert.equal((context.processingConfig as any).action, 'import')
     assert.ok(logs.some(entry => entry.level === 'warning' && entry.message.includes('métadonnées')))
+  })
+
+  it('ne supprime pas les jeux marqués mais sans processingId', async () => {
+    let deleted = 0
+    const axios = fakeAxios({
+      get: async () => ({
+        results: [{
+          id: 'ds1',
+          title: 'Schéma A',
+          extras: { 'schema-datagouv': { name: 'test/schema-a', version: '1.1.0' } }
+        }]
+      }),
+      delete: async () => { deleted++ }
+    })
+    const { context, logs } = fakeContext({ processingConfig: { action: 'delete' }, axios })
+
+    await withFetch(noFetch, () => run(context))
+
+    assert.equal(deleted, 0)
+    assert.equal((context.processingConfig as any).action, 'import')
+    assert.ok(logs.some(entry => entry.level === 'warning' && entry.message.includes('sans processingId')))
+    assert.ok(logs.some(entry => entry.level === 'warning' && entry.message.includes('ds1')))
   })
 
   it('ignore les jeux suivis par un autre traitement', async () => {
