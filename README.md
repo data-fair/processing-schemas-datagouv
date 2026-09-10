@@ -13,6 +13,8 @@ Chaque schéma importé produit un jeu de données éditable (REST) :
 
 À chaque exécution, les jeux déjà créés sont mis à jour vers la dernière version publiée du schéma (sinon ils sont laissés inchangés). Le résumé et la description ne sont rafraîchis que s'ils n'ont pas été personnalisés.
 
+L'onglet « Action » propose aussi une action ponctuelle de nettoyage : « Supprimer les jeux de données créés » supprime tous les jeux suivis par le traitement (y compris leurs personnalisations), puis l'action repasse automatiquement sur l'import et l'exécution s'arrête sans rien importer. Un jeu déjà supprimé manuellement est ignoré ; en cas d'échec, les jeux restants sont conservés et l'action sera retentée à l'exécution suivante.
+
 ## Publication
 
 ```bash

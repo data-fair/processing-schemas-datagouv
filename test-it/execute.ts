@@ -274,3 +274,76 @@ describe('exécution : mise à jour', () => {
     assert.equal((context.processingConfig as any).createdDatasets[0].datasetId, 'ds2')
   })
 })
+
+describe('exécution : suppression', () => {
+  const deletedConfig = () => ({
+    action: 'delete',
+    importMode: 'select',
+    schemas: ['test/schema-a'],
+    createdDatasets: [
+      { schemaName: 'test/schema-a', version: '1.1.0', datasetId: 'ds1', datasetTitle: 'Schéma A' },
+      { schemaName: 'test/schema-b', version: '1.0.0', datasetId: 'ds2', datasetTitle: 'Schéma B' }
+    ]
+  })
+
+  const noFetch = () => { throw new Error('aucun fetch attendu') }
+
+  it('supprime tous les jeux suivis, vide le suivi et revient à l\'import', async () => {
+    const deleted: string[] = []
+    const axios = fakeAxios({
+      delete: async url => { deleted.push(url) },
+      post: async () => { throw new Error('aucun post attendu') }
+    })
+    const { context, patches, logs } = fakeContext({ processingConfig: deletedConfig(), axios })
+
+    await withFetch(noFetch, () => run(context))
+
+    assert.deepEqual(deleted.sort(), ['api/v1/datasets/ds1', 'api/v1/datasets/ds2'])
+    assert.deepEqual((context.processingConfig as any).createdDatasets, [])
+    assert.equal((context.processingConfig as any).action, 'import')
+    assert.ok(patches.some(patch => patch.action === 'import' && Array.isArray(patch.createdDatasets) && patch.createdDatasets.length === 0))
+    assert.ok(logs.some(entry => entry.level === 'info' && entry.message.includes('2 supprimé(s)')))
+  })
+
+  it('ignore un jeu déjà supprimé manuellement (404)', async () => {
+    const axios = fakeAxios({
+      delete: async () => { throw Object.assign(new Error('not found'), { response: { status: 404 } }) }
+    })
+    const { context, logs } = fakeContext({ processingConfig: deletedConfig(), axios })
+
+    await withFetch(noFetch, () => run(context))
+
+    assert.deepEqual((context.processingConfig as any).createdDatasets, [])
+    assert.equal((context.processingConfig as any).action, 'import')
+    assert.ok(logs.some(entry => entry.level === 'info' && entry.message.includes('déjà absent')))
+  })
+
+  it('conserve les jeux en échec pour un nouvel essai', async () => {
+    const axios = fakeAxios({
+      delete: async url => {
+        if (url.endsWith('/ds2')) throw Object.assign(new Error('boom'), { response: { status: 500 } })
+      }
+    })
+    const { context, patches, logs } = fakeContext({ processingConfig: deletedConfig(), axios })
+
+    await withFetch(noFetch, () => assert.rejects(run(context), /1 jeu/))
+
+    const remaining = (context.processingConfig as any).createdDatasets
+    assert.equal(remaining.length, 1)
+    assert.equal(remaining[0].datasetId, 'ds2')
+    assert.equal((context.processingConfig as any).action, 'delete')
+    assert.ok(!patches.some(patch => patch.action === 'import'))
+    assert.ok(logs.some(entry => entry.level === 'error' && entry.message.includes('Échec de la suppression')))
+  })
+
+  it('ne fait rien s\'il n\'y a aucun jeu suivi', async () => {
+    let deleted = 0
+    const axios = fakeAxios({ delete: async () => { deleted++ } })
+    const { context } = fakeContext({ processingConfig: { action: 'delete' }, axios })
+
+    await withFetch(noFetch, () => run(context))
+
+    assert.equal(deleted, 0)
+    assert.equal((context.processingConfig as any).action, 'import')
+  })
+})

@@ -4,12 +4,14 @@ export interface FakeAxiosHandlers {
   get?: (url: string) => Promise<any>
   post?: (url: string, body: any, config?: any) => Promise<any>
   patch?: (url: string, body: any) => Promise<any>
+  delete?: (url: string) => Promise<any>
 }
 
 export const fakeAxios = (handlers: FakeAxiosHandlers = {}): ProcessingContext['axios'] => ({
   get: async (url: string) => ({ data: await handlers.get?.(url) }),
   post: async (url: string, body: any, config?: any) => ({ data: await handlers.post?.(url, body, config) }),
-  patch: async (url: string, body: any) => ({ data: await handlers.patch?.(url, body) })
+  patch: async (url: string, body: any) => ({ data: await handlers.patch?.(url, body) }),
+  delete: async (url: string) => ({ data: await handlers.delete?.(url) })
 } as any)
 
 export interface CapturedLog {

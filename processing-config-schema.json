@@ -5,16 +5,22 @@
   "layout": "tabs",
   "allOf": [
     {
-      "title": "Schémas",
-      "description": "Chaque schéma tabulaire importé produit un jeu de données éditable, dont le schéma est initialisé depuis la dernière version publiée sur [schema.data.gouv.fr](https://schema.data.gouv.fr).",
+      "title": "Action",
+      "description": "Chaque schéma tabulaire importé produit un jeu de données éditable, dont le schéma est initialisé depuis la dernière version publiée sur [schema.data.gouv.fr](https://schema.data.gouv.fr). Les jeux créés sont suivis par ce traitement et mis à jour aux exécutions suivantes.",
       "default": {
+        "action": "import",
         "importMode": "select"
       },
       "oneOf": [
         {
-          "title": "Choisir des schémas",
+          "title": "Importer les schémas sélectionnés",
           "required": ["importMode", "schemas"],
           "properties": {
+            "action": {
+              "type": "string",
+              "const": "import",
+              "title": "Action"
+            },
             "importMode": {
               "type": "string",
               "const": "select",
@@ -44,17 +50,43 @@
           "title": "Importer tous les schémas tabulaires",
           "required": ["importMode"],
           "properties": {
+            "action": {
+              "type": "string",
+              "const": "import",
+              "title": "Action"
+            },
             "importMode": {
               "type": "string",
               "const": "all",
               "title": "Mode d'import"
             }
           }
+        },
+        {
+          "title": "Supprimer les jeux de données créés",
+          "required": ["action"],
+          "properties": {
+            "action": {
+              "type": "string",
+              "const": "delete",
+              "title": "Action"
+            }
+          },
+          "layout": {
+            "children": [
+              {
+                "markdown": "**Action destructrice.** À la prochaine exécution, supprime définitivement tous les jeux de données créés par ce traitement, y compris leurs personnalisations (données, permissions, métadonnées). L'action repasse ensuite sur « importer » et l'exécution s'arrête sans rien importer.\n\nSi ce traitement est planifié et que des schémas restent sélectionnés, les jeux seront recréés à l'exécution suivante : désélectionnez les schémas ou supprimez le traitement pour un arrêt définitif.\n\nUn jeu déjà supprimé manuellement est ignoré. En cas d'échec, les jeux restants sont conservés et l'action sera retentée à l'exécution suivante."
+              }
+            ]
+          }
         }
       ]
     },
     {
       "title": "Options",
+      "layout": {
+        "if": "parent.data.action !== 'delete'"
+      },
       "properties": {
         "loadExample": {
           "type": "boolean",
@@ -94,6 +126,9 @@
     {
       "title": "Indexation",
       "description": "Capacités techniques des champs des jeux de données produits (recherche textuelle, filtrage exact, tri, agrégation, tuiles vectorielles). Elles sont copiées dans les jeux de données initialisés depuis ces schémas.",
+      "layout": {
+        "if": "parent.data.action !== 'delete'"
+      },
       "properties": {
         "capabilitiesMode": {
           "type": "string",
@@ -111,7 +146,7 @@
           "description": "Conserve la recherche textuelle sur les champs de type code (SIRET, code INSEE, code postal...). Par défaut elle est désactivée : la recherche par valeur exacte et le tri restent disponibles.",
           "default": false,
           "layout": {
-            "if": "rootData.capabilitiesMode !== 'standard'"
+            "if": "parent.data.capabilitiesMode !== 'standard'"
           }
         },
         "restrictLongText": {
@@ -120,7 +155,7 @@
           "description": "Désactive le filtrage sur valeur exacte et le tri sur les champs de texte long (description, commentaire...), pour limiter le volume d'index. La recherche textuelle reste active.",
           "default": true,
           "layout": {
-            "if": "rootData.capabilitiesMode !== 'standard'"
+            "if": "parent.data.capabilitiesMode !== 'standard'"
           }
         },
         "vectorTiles": {
@@ -129,7 +164,7 @@
           "description": "Précalcule les éléments utiles au rendu cartographique des géométries. À activer pour des données géographiques denses : augmente le temps d'indexation et le volume indexé.",
           "default": false,
           "layout": {
-            "if": "rootData.capabilitiesMode !== 'standard'"
+            "if": "parent.data.capabilitiesMode !== 'standard'"
           }
         }
       }

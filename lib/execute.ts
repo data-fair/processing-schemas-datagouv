@@ -5,7 +5,7 @@ import { convertTableSchema } from './convert.ts'
 import type { CapabilitiesOptions } from './capabilities.ts'
 import { mergeConcepts } from './concepts.ts'
 import { datasetDescription, datasetSummary, metadataPatch } from './metadata.ts'
-import { createSchemaDataset, datasetTitle, describeError, getDataset, loadExampleData, needsTitleRepair, patchSchemaDataset } from './datasets.ts'
+import { createSchemaDataset, datasetTitle, deleteDataset, describeError, getDataset, loadExampleData, needsTitleRepair, patchSchemaDataset } from './datasets.ts'
 
 let shouldBeStopped = false
 
@@ -28,6 +28,11 @@ export const run = async (context: ProcessingContext<ProcessingConfig>) => {
   shouldBeStopped = false
   const { processingConfig, axios, log, patchConfig } = context
   const config = processingConfig as any
+
+  if (config.action === 'delete') {
+    await deleteCreatedDatasets(context)
+    return
+  }
 
   await log.step('Lecture du catalogue schema.data.gouv.fr')
   const entries = await fetchCatalog()
@@ -77,6 +82,64 @@ export const run = async (context: ProcessingContext<ProcessingConfig>) => {
   const summary = `${counts.created} créé(s), ${counts.updated} mis à jour, ${counts.unchanged} déjà à jour, ${counts.skipped} ignoré(s), ${counts.failed} en échec`
   await log.info(summary)
   if (counts.failed) throw new Error(`${counts.failed} schéma(s) n'ont pas pu être importé(s), consultez le journal.`)
+}
+
+/**
+ * Supprime tous les jeux de données créés par le traitement.
+ *
+ * Action ponctuelle : les jeux supprimés sont retirés du suivi, les échecs y restent
+ * pour être retentés au prochain run, et l'action revient à l'import une fois le
+ * nettoyage terminé.
+ */
+const deleteCreatedDatasets = async (context: ProcessingContext<ProcessingConfig>) => {
+  const { processingConfig, axios, log, patchConfig } = context
+  const config = processingConfig as any
+  const tracked: TrackedDataset[] = [...(config.createdDatasets ?? [])]
+
+  await log.step('Suppression des jeux de données créés')
+  if (!tracked.length) {
+    await log.info('Aucun jeu de données créé par ce traitement à supprimer.')
+    await patchConfig({ action: 'import' } as any)
+    return
+  }
+
+  const remaining: TrackedDataset[] = []
+  let deleted = 0
+  let missing = 0
+  let failed = 0
+
+  for (const [index, entry] of tracked.entries()) {
+    if (shouldBeStopped) {
+      remaining.push(...tracked.slice(index))
+      break
+    }
+    try {
+      const existed = await deleteDataset(axios, entry.datasetId, entry.datasetTitle)
+      if (existed) {
+        deleted++
+        await log.info(`Jeu de données supprimé : "${entry.datasetTitle}" (${entry.datasetId})`)
+      } else {
+        missing++
+        await log.info(`Jeu de données déjà absent : "${entry.datasetTitle}" (${entry.datasetId})`)
+      }
+    } catch (err: any) {
+      failed++
+      remaining.push(entry)
+      await log.error(`Échec de la suppression du jeu de données "${entry.datasetTitle}"`, describeError(err))
+    }
+  }
+
+  // persisté avant de conclure : les jeux supprimés ne doivent pas être retentés au
+  // prochain run, et l'action reste "delete" tant qu'il reste des échecs à retenter
+  await patchConfig({
+    createdDatasets: remaining.map(t => ({ ...t })),
+    ...(shouldBeStopped || failed ? {} : { action: 'import' })
+  } as any)
+
+  await log.step('Bilan')
+  await log.info(`${deleted} supprimé(s), ${missing} déjà absent(s), ${failed} en échec`)
+  if (shouldBeStopped) return
+  if (failed) throw new Error(`${failed} jeu(x) de données n'ont pas pu être supprimé(s), consultez le journal.`)
 }
 
 const capabilitiesOptions = (config: any): CapabilitiesOptions => ({

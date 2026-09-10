@@ -105,6 +105,22 @@ export const patchSchemaDataset = async (axios: AxiosInstance, id: string, patch
 }
 
 /**
+ * Supprime un jeu de données.
+ *
+ * Renvoie `false` s'il a déjà été supprimé manuellement (404), pour que le suivi
+ * du traitement puisse être nettoyé sans échouer.
+ */
+export const deleteDataset = async (axios: AxiosInstance, id: string, title: string): Promise<boolean> => {
+  try {
+    await axios.delete(`api/v1/datasets/${id}`)
+    return true
+  } catch (err: any) {
+    if (err.response?.status === 404) return false
+    throw new Error(`Échec de la suppression du jeu de données "${title}" : ${describeError(err)}`)
+  }
+}
+
+/**
  * Charge le fichier d'exemple publié avec le schéma comme premières lignes du jeu.
  *
  * Les exemples du catalogue sont hétérogènes (liens HTML, exemples invalides ou
