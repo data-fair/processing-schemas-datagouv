@@ -23,6 +23,8 @@ export interface ConceptDefinition {
   formats?: string[]
   /** accepte aussi un entier (l'API le reconvertit en chaîne), ex. le concept année */
   allowInteger?: boolean
+  /** identifiant de type code : la recherche textuelle n'a pas de sens (cf. capabilities) */
+  code?: boolean
 }
 
 const DATE_FORMATS = ['date', 'date-time']
@@ -76,7 +78,7 @@ const definitions: { concept: ConceptDefinition, names: string[] }[] = [
     names: ['voie', 'nom_voie', 'nom_de_voie', 'rue', 'nom_rue', 'street', 'adresse_voie', 'lieu_dit']
   },
   {
-    concept: { identifier: 'http://www.ontotext.com/proton/protonext#StreetNumber', type: 'string' },
+    concept: { identifier: 'http://www.ontotext.com/proton/protonext#StreetNumber', type: 'string', code: true },
     names: ['numero_voie', 'num_voie', 'no_voie', 'numero_rue', 'num_rue', 'street_number']
   },
   {
@@ -84,7 +86,7 @@ const definitions: { concept: ConceptDefinition, names: string[] }[] = [
     names: ['commune', 'nom_commune', 'nom_de_la_commune', 'ville', 'nom_ville', 'city']
   },
   {
-    concept: { identifier: 'http://schema.org/postalCode', type: 'string' },
+    concept: { identifier: 'http://schema.org/postalCode', type: 'string', code: true },
     names: ['code_postal', 'postal_code', 'cp']
   },
   {
@@ -100,56 +102,56 @@ const definitions: { concept: ConceptDefinition, names: string[] }[] = [
     names: ['pays', 'nom_pays', 'nom_du_pays', 'country']
   },
   {
-    concept: { identifier: 'http://dbpedia.org/ontology/iso31661Code', type: 'string' },
+    concept: { identifier: 'http://dbpedia.org/ontology/iso31661Code', type: 'string', code: true },
     names: ['code_pays_iso', 'code_pays_iso2', 'code_iso_pays', 'country_code', 'code_iso2']
   },
   // Référentiels administratifs français
   {
-    concept: { identifier: 'http://rdf.insee.fr/def/geo#codeCommune', type: 'string' },
+    concept: { identifier: 'http://rdf.insee.fr/def/geo#codeCommune', type: 'string', code: true },
     names: ['code_insee', 'insee', 'code_commune', 'insee_commune']
   },
   {
-    concept: { identifier: 'http://rdf.insee.fr/def/geo#codeDepartement', type: 'string' },
+    concept: { identifier: 'http://rdf.insee.fr/def/geo#codeDepartement', type: 'string', code: true },
     names: ['code_departement', 'code_dept']
   },
   {
-    concept: { identifier: 'http://rdf.insee.fr/def/geo#codeRegion', type: 'string' },
+    concept: { identifier: 'http://rdf.insee.fr/def/geo#codeRegion', type: 'string', code: true },
     names: ['code_region']
   },
   {
-    concept: { identifier: 'http://rdf.insee.fr/def/geo#EtablissementPublicDeCooperationIntercommunale', type: 'string' },
+    concept: { identifier: 'http://rdf.insee.fr/def/geo#EtablissementPublicDeCooperationIntercommunale', type: 'string', code: true },
     names: ['code_epci']
   },
   {
-    concept: { identifier: 'http://rdf.insee.fr/def/geo#codeIRIS', type: 'string' },
+    concept: { identifier: 'http://rdf.insee.fr/def/geo#codeIRIS', type: 'string', code: true },
     names: ['code_iris', 'iris_insee', 'iris_code']
   },
   {
-    concept: { identifier: 'http://dbpedia.org/ontology/codeLandRegistry', type: 'string' },
+    concept: { identifier: 'http://dbpedia.org/ontology/codeLandRegistry', type: 'string', code: true },
     names: ['code_parcelle', 'parcelle', 'parcelle_cadastrale', 'id_parcelle', 'identifiant_parcelle']
   },
   {
-    concept: { identifier: 'http://www.datatourisme.fr/ontology/core/1.0/#siret', type: 'string' },
+    concept: { identifier: 'http://www.datatourisme.fr/ontology/core/1.0/#siret', type: 'string', code: true },
     names: ['siret', 'numero_siret']
   },
   {
-    concept: { identifier: 'http://dbpedia.org/ontology/siren', type: 'string' },
+    concept: { identifier: 'http://dbpedia.org/ontology/siren', type: 'string', code: true },
     names: ['siren', 'numero_siren']
   },
   {
-    concept: { identifier: 'http://www.datatourisme.fr/ontology/core/1.0#apeNaf', type: 'string' },
+    concept: { identifier: 'http://www.datatourisme.fr/ontology/core/1.0#apeNaf', type: 'string', code: true },
     names: ['code_ape', 'ape', 'code_naf', 'naf']
   },
   {
-    concept: { identifier: 'http://data.europa.eu/cpv/cpv', type: 'string' },
+    concept: { identifier: 'http://data.europa.eu/cpv/cpv', type: 'string', code: true },
     names: ['code_cpv', 'cpv']
   },
   {
-    concept: { identifier: 'https://sig.ville.gouv.fr/qpv', type: 'string' },
+    concept: { identifier: 'https://sig.ville.gouv.fr/qpv', type: 'string', code: true },
     names: ['qpv', 'quartier_prioritaire']
   },
   {
-    concept: { identifier: 'https://rnb.gouv.fr/#ID-RNB', type: 'string' },
+    concept: { identifier: 'https://rnb.gouv.fr/#ID-RNB', type: 'string', code: true },
     names: ['id_rnb', 'identifiant_rnb', 'rnb']
   },
   // Calendrier
@@ -203,6 +205,11 @@ for (const { concept, names } of definitions) {
     if (!conceptsByLabel.has(name)) conceptsByLabel.set(name, concept)
   }
 }
+
+/** Identifiants de concepts de type code (recherche textuelle peu pertinente). */
+export const codeConceptIdentifiers = new Set(
+  definitions.filter(({ concept }) => concept.code).map(({ concept }) => concept.identifier)
+)
 
 /** Minuscules, sans accents, caractères non alphanumériques réduits à "_". */
 export const normalizeLabel = (label: string): string =>

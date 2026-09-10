@@ -4,6 +4,7 @@
  * avec les concepts reconnus par la plateforme.
  */
 import { applyConcepts } from './concepts.ts'
+import { applyCapabilities, type CapabilitiesOptions } from './capabilities.ts'
 
 export interface TableSchemaField {
   name: string
@@ -40,6 +41,7 @@ export interface DatasetSchemaProperty {
   'x-originalName': string
   'x-required'?: boolean
   'x-refersTo'?: string
+  'x-capabilities'?: Record<string, boolean>
   minLength?: number
   maxLength?: number
   minimum?: number
@@ -96,7 +98,7 @@ export const convertField = (field: TableSchemaField): DatasetSchemaProperty => 
  * Convertit un table schema complet.
  * Retourne les propriétés data-fair et, si elle est déclarée et cohérente, la clé primaire.
  */
-export const convertTableSchema = (tableSchema: TableSchema): { schema: DatasetSchemaProperty[], primaryKey?: string[] } => {
+export const convertTableSchema = (tableSchema: TableSchema, options: CapabilitiesOptions = {}): { schema: DatasetSchemaProperty[], primaryKey?: string[] } => {
   if (!Array.isArray(tableSchema?.fields) || !tableSchema.fields.length) {
     throw new Error('Table schema invalide : aucun champ déclaré dans "fields".')
   }
@@ -109,6 +111,7 @@ export const convertTableSchema = (tableSchema: TableSchema): { schema: DatasetS
   }
   const schema = tableSchema.fields.map(convertField)
   applyConcepts(schema)
+  applyCapabilities(schema, tableSchema.fields, options)
 
   let primaryKey: string[] | undefined
   if (tableSchema.primaryKey) {

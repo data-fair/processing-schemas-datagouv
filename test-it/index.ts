@@ -250,6 +250,9 @@ describe('processing-schemas-datagouv', () => {
       assert.equal(live.masterData?.standardSchema?.active, true)
       assert.ok(live.schema.length > 0)
       assert.equal(live.isRest, true)
+      assert.ok(live.summary)
+      assert.match(live.description, /schema\.data\.gouv\.fr/)
+      assert.ok(live.schema.some((property: any) => property['x-capabilities']))
     } finally {
       const datasets: any[] = (context.processingConfig as any).createdDatasets ?? []
       for (const dataset of datasets) {

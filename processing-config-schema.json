@@ -90,6 +90,49 @@
           }
         }
       }
+    },
+    {
+      "title": "Indexation",
+      "description": "Capacités techniques des champs des jeux de données produits (recherche textuelle, filtrage exact, tri, agrégation, tuiles vectorielles). Elles sont copiées dans les jeux de données initialisés depuis ces schémas.",
+      "properties": {
+        "capabilitiesMode": {
+          "type": "string",
+          "title": "Mode d'indexation",
+          "description": "- **Automatique** : adapte les capacités aux informations du schéma. La recherche textuelle est désactivée sur les champs de type code (SIRET, code INSEE, code postal, identifiant...) et sur les champs reconnus par leurs concepts, et le filtrage exact et le tri sont désactivés sur les champs de texte long (description, commentaire...).\n- **Standard** : conserve les capacités par défaut de data-fair sur tous les champs.",
+          "enum": [
+            "auto",
+            "standard"
+          ],
+          "default": "auto"
+        },
+        "textSearchOnCodes": {
+          "type": "boolean",
+          "title": "Recherche textuelle sur les champs de code",
+          "description": "Conserve la recherche textuelle sur les champs de type code (SIRET, code INSEE, code postal...). Par défaut elle est désactivée : la recherche par valeur exacte et le tri restent disponibles.",
+          "default": false,
+          "layout": {
+            "if": "rootData.capabilitiesMode !== 'standard'"
+          }
+        },
+        "restrictLongText": {
+          "type": "boolean",
+          "title": "Restreindre les capacités des textes longs",
+          "description": "Désactive le filtrage sur valeur exacte et le tri sur les champs de texte long (description, commentaire...), pour limiter le volume d'index. La recherche textuelle reste active.",
+          "default": true,
+          "layout": {
+            "if": "rootData.capabilitiesMode !== 'standard'"
+          }
+        },
+        "vectorTiles": {
+          "type": "boolean",
+          "title": "Préparer les tuiles vectorielles",
+          "description": "Précalcule les éléments utiles au rendu cartographique des géométries. À activer pour des données géographiques denses : augmente le temps d'indexation et le volume indexé.",
+          "default": false,
+          "layout": {
+            "if": "rootData.capabilitiesMode !== 'standard'"
+          }
+        }
+      }
     }
   ]
 }

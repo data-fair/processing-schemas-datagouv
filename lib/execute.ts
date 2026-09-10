@@ -1,8 +1,10 @@
 import type { ProcessingContext } from '@data-fair/lib-common-types/processings.js'
 import type { ProcessingConfig } from '#types/processingConfig/index.ts'
-import { fetchCatalog, fetchJSON, latestVersion, tabularEntries, type CatalogEntry } from './catalog.ts'
+import { fetchCatalog, fetchJSON, latestVersion, tabularEntries, type CatalogEntry, type CatalogVersion } from './catalog.ts'
 import { convertTableSchema } from './convert.ts'
+import type { CapabilitiesOptions } from './capabilities.ts'
 import { mergeConcepts } from './concepts.ts'
+import { datasetDescription, datasetSummary, metadataPatch } from './metadata.ts'
 import { createSchemaDataset, datasetTitle, describeError, getDataset, loadExampleData, needsTitleRepair, patchSchemaDataset } from './datasets.ts'
 
 let shouldBeStopped = false
@@ -77,6 +79,24 @@ export const run = async (context: ProcessingContext<ProcessingConfig>) => {
   if (counts.failed) throw new Error(`${counts.failed} schéma(s) n'ont pas pu être importé(s), consultez le journal.`)
 }
 
+const capabilitiesOptions = (config: any): CapabilitiesOptions => ({
+  mode: config.capabilitiesMode === 'standard' ? 'standard' : 'auto',
+  textSearchOnCodes: config.textSearchOnCodes === true,
+  restrictLongText: config.restrictLongText !== false,
+  vectorTiles: config.vectorTiles === true
+})
+
+/** Version du schéma précédemment appliquée, d'après les métadonnées du jeu en place. */
+const previousVersion = (live: any, entry: CatalogEntry, fallbackVersion: string): CatalogVersion => {
+  const extra = live.extras?.['schema-datagouv']
+  const name = extra?.name ?? entry.name
+  const versionName = extra?.version ?? fallbackVersion
+  return {
+    version_name: versionName,
+    schema_url: extra?.schemaUrl ?? `https://schema.data.gouv.fr/schemas/${name}/${versionName}/schema.json`
+  }
+}
+
 const importSchema = async (
   entry: CatalogEntry,
   { config, tracked, axios, log, patchConfig }: { config: any, tracked: TrackedDataset[], axios: ProcessingContext['axios'], log: ProcessingContext['log'], patchConfig: ProcessingContext['patchConfig'] },
@@ -88,7 +108,7 @@ const importSchema = async (
 
   await log.info(`Schéma "${entry.title}" (${entry.name}) : dernière version ${version.version_name}${known ? `, jeu de données "${known.datasetTitle}" (${known.datasetId})` : ', nouveau jeu de données'}`)
   const tableSchema = await fetchJSON(version.schema_url)
-  const { schema, primaryKey } = convertTableSchema(tableSchema)
+  const { schema, primaryKey } = convertTableSchema(tableSchema, capabilitiesOptions(config))
 
   const conformsTo = { title: entry.title, version: version.version_name, url: version.schema_url }
   const origin = version.schema_url
@@ -134,6 +154,8 @@ const importSchema = async (
         patch.title = expectedTitle
         await log.info(`Titre du jeu de données corrigé en "${expectedTitle}"`)
       }
+      // résumé/description rafraîchis uniquement s'ils n'ont pas été personnalisés
+      Object.assign(patch, metadataPatch(live, entry, previousVersion(live, entry, known.version), version))
       await patchSchemaDataset(axios, known.datasetId, patch, known.datasetTitle)
       known.version = version.version_name
       if (patch.title) known.datasetTitle = expectedTitle
@@ -146,7 +168,8 @@ const importSchema = async (
 
   const payload = {
     title: expectedTitle,
-    description: [entry.description, `Schéma importé de [schema.data.gouv.fr](https://schema.data.gouv.fr), version ${version.version_name}.`].filter(Boolean).join('\n\n'),
+    summary: datasetSummary(entry),
+    description: datasetDescription(entry, version),
     schema,
     primaryKey,
     conformsTo,
@@ -160,7 +183,7 @@ const importSchema = async (
   await patchConfig({ createdDatasets: tracked.map(t => ({ ...t })) } as any)
   counts.created++
 
-  if (config.loadExample !== false && entry.examples?.[0]?.path) {
-    await loadExampleData(axios, dataset.id, dataset.title, entry.examples[0].path!, log)
+  if (config.loadExample !== false) {
+    await loadExampleData(axios, dataset.id, dataset.title, entry, schema, log)
   }
 }
