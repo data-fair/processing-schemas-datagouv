@@ -1,6 +1,6 @@
 {
   "name": "@data-fair/processing-schemas-datagouv",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Importe et met à jour les schémas tabulaires de schema.data.gouv.fr comme jeux de données éditables data-fair",
   "main": "index.ts",
   "type": "module",
