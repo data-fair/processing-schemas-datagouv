@@ -17,6 +17,14 @@ describe('contrat avec le catalogue schema.data.gouv.fr', { skip: enabled ? fals
       const tableSchema = await (await fetch(latestVersion(entry).schema_url)).json()
       const { schema } = convertTableSchema(tableSchema)
       assert.ok(schema.length > 0, `aucun champ converti pour ${entry.name}`)
+      // les clés doivent être des clés data-fair : pas de point (chemin imbriqué)
+      // et pas de collision après normalisation
+      const keys = new Set<string>()
+      for (const property of schema) {
+        assert.match(property.key, /^[a-z0-9][a-z0-9_]*$/, `clé non normalisée pour ${entry.name} : ${property.key}`)
+        assert.ok(!keys.has(property.key), `clé dupliquée pour ${entry.name} : ${property.key}`)
+        keys.add(property.key)
+      }
     }
   })
 

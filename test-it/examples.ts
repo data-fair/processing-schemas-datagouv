@@ -128,6 +128,25 @@ describe('exemples : analyse CSV', () => {
     assert.deepEqual(check.unknown, [])
   })
 
+  it('reconnaît les noms d\'origine des clés normalisées, y compris avec un point', () => {
+    const schema = [
+      { key: 'note_a_c1_1', 'x-originalName': 'note_A_c1.1', 'x-required': true },
+      { key: 'nom', 'x-originalName': 'Nom' }
+    ]
+    const ok = checkHeader(['note_A_c1.1', 'Nom'], schema)
+    assert.deepEqual(ok.unknown, [])
+    assert.deepEqual(ok.missingRequired, [])
+    assert.equal(ok.renamed.size, 0)
+
+    const byKey = checkHeader(['note_a_c1_1', 'nom'], schema)
+    assert.deepEqual(byKey.unknown, [])
+    assert.deepEqual(byKey.missingRequired, [])
+
+    const accents = checkHeader(['note_A_c1.1', 'NOM'], schema)
+    assert.deepEqual(accents.unknown, [])
+    assert.equal(accents.renamed.get(1), 'Nom')
+  })
+
   it('réécrit l\'en-tête avec les clés exactes', () => {
     const renamed = new Map([[0, 'nom'], [1, 'code_insee']])
     assert.equal(
@@ -157,6 +176,14 @@ describe('exemples : type de fichier et préparation', () => {
   it('prépare un CSV conforme et normalise l\'en-tête', () => {
     const prepared = prepareExample(csvExample('Nom;Code INSEE\nDupont;75056\n'), [{ key: 'nom' }, { key: 'code_insee' }])
     assert.deepEqual(prepared, { kind: 'csv', separator: ';', text: 'nom;code_insee\nDupont;75056\n' })
+  })
+
+  it('laisse l\'en-tête pointé intact quand il correspond au nom d\'origine', () => {
+    const prepared = prepareExample(csvExample('note_A_c1.1;nom\n1;A\n'), [
+      { key: 'note_a_c1_1', 'x-originalName': 'note_A_c1.1' },
+      { key: 'nom', 'x-originalName': 'nom' }
+    ])
+    assert.deepEqual(prepared, { kind: 'csv', separator: ';', text: 'note_A_c1.1;nom\n1;A\n' })
   })
 
   it('rejette un exemple avec des colonnes inconnues', () => {

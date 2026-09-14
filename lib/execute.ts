@@ -4,7 +4,7 @@ import { fetchCatalog, fetchJSON, latestVersion, tabularEntries, type CatalogEnt
 import { convertTableSchema } from './convert.ts'
 import type { CapabilitiesOptions } from './capabilities.ts'
 import { mergeConcepts } from './concepts.ts'
-import { datasetDescription, datasetSummary, metadataPatch } from './metadata.ts'
+import { datasetDescription, datasetSummary, metadataPatch, schemaPageUrl } from './metadata.ts'
 import { createSchemaDataset, datasetTitle, deleteDataset, describeError, getDataset, loadExampleData, needsTitleRepair, patchSchemaDataset } from './datasets.ts'
 
 let shouldBeStopped = false
@@ -237,7 +237,9 @@ const importSchema = async (
   const tableSchema = await fetchJSON(version.schema_url)
   const { schema, primaryKey } = convertTableSchema(tableSchema, capabilitiesOptions(config))
 
-  const conformsTo = { title: entry.title, version: version.version_name, url: version.schema_url }
+  // le lien "conformsTo" est affiché tel quel dans les portails : on pointe vers
+  // la page de présentation du schéma, pas vers le fichier JSON (porté par origin)
+  const conformsTo = { title: entry.title, version: version.version_name, url: schemaPageUrl(entry.name) }
   const origin = version.schema_url
 
   if (known) {
@@ -248,16 +250,25 @@ const importSchema = async (
     } else if (live.conformsTo?.version === version.version_name) {
       // le fichier d'un schéma est immuable pour une version donnée : en dehors d'une
       // nouvelle version, on ne répare que ce qui a été perdu (mode master data) ou créé
-      // historiquement (titre préfixé en double, concepts absents) — jamais les
-      // personnalisations du propriétaire du jeu de données
+      // historiquement (titre préfixé en double, concepts absents, lien conformsTo vers
+      // le JSON) — jamais les personnalisations du propriétaire du jeu de données
       const repair: Record<string, unknown> = {}
       const mergedSchema = mergeConcepts(live.schema ?? [], schema)
       if (mergedSchema) repair.schema = mergedSchema
       if (needsTitleRepair(live.title ?? '', expectedTitle)) repair.title = expectedTitle
-      if (repair.schema || repair.title) {
+      // les jeux historiques pointaient le JSON du schéma : on ne corrige le lien
+      // que s'il porte encore la valeur générée, jamais une personnalisation
+      if (live.conformsTo?.url && live.conformsTo.url !== schemaPageUrl(entry.name) && live.conformsTo.url === previousVersion(live, entry, known.version).schema_url) {
+        repair.conformsTo = { ...live.conformsTo, url: schemaPageUrl(entry.name) }
+      }
+      if (repair.schema || repair.title || repair.conformsTo) {
         if (!live.masterData) repair.masterData = { standardSchema: { active: true } }
         await patchSchemaDataset(axios, known.datasetId, repair, known.datasetTitle)
-        const reasons = [repair.title ? 'titre corrigé' : null, repair.schema ? 'concepts ajoutés' : null].filter(Boolean).join(', ')
+        const reasons = [
+          repair.title ? 'titre corrigé' : null,
+          repair.schema ? 'concepts ajoutés' : null,
+          repair.conformsTo ? 'lien du schéma corrigé' : null
+        ].filter(Boolean).join(', ')
         await log.info(`Jeu de données "${known.datasetTitle}" réparé (${reasons})`)
         counts.updated++
         if (repair.title) {

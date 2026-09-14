@@ -94,6 +94,31 @@ describe('processing-schemas-datagouv', () => {
       assert.deepEqual(primaryKey, ['id'])
     })
 
+    it('normalise les clés et conserve le nom d\'origine', () => {
+      const property = convertField({ name: 'note_A_c1.1', title: 'Note A c1.1', type: 'number' })
+      assert.equal(property.key, 'note_a_c1_1')
+      assert.equal(property['x-originalName'], 'note_A_c1.1')
+      assert.equal(property.title, 'Note A c1.1')
+    })
+
+    it('normalise la clé primaire', () => {
+      const { primaryKey } = convertTableSchema({
+        fields: [
+          { name: 'note_A_c1.1', type: 'number' },
+          { name: 'id_unique', type: 'string' }
+        ],
+        primaryKey: 'note_A_c1.1'
+      })
+      assert.deepEqual(primaryKey, ['note_a_c1_1'])
+    })
+
+    it('rejette une collision de clés après normalisation', () => {
+      assert.throws(
+        () => convertTableSchema({ fields: [{ name: 'a.b' }, { name: 'a_b' }] }),
+        /même clé/
+      )
+    })
+
     it('ignore une clé primaire incohérente', () => {
       const { primaryKey } = convertTableSchema({
         fields: [{ name: 'id', type: 'string' }],

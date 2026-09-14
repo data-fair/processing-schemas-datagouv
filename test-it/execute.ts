@@ -84,6 +84,9 @@ describe('exécution : création', () => {
     assert.equal(created[0].summary, 'Description A')
     assert.match(created[0].description, /https:\/\/schema\.data\.gouv\.fr\/test\/schema-a\//)
     assert.match(created[0].description, /version 1\.1\.0/)
+    // conformsTo.url pointe la page de présentation, origin le fichier JSON
+    assert.equal(created[0].conformsTo.url, 'https://schema.data.gouv.fr/test/schema-a/')
+    assert.equal(created[0].origin, schemaUrl('test/schema-a', '1.1.0'))
     assert.deepEqual(created[0].schema.find((p: any) => p.key === 'siret')['x-capabilities'], { text: false, insensitive: false })
     assert.deepEqual(created[0].schema.find((p: any) => p.key === 'code_insee')['x-capabilities'], { text: false, insensitive: false })
     assert.equal(created[0].masterData.standardSchema.active, true)
@@ -212,6 +215,46 @@ describe('exécution : mise à jour', () => {
     assert.equal(nom['x-refersTo'], 'http://www.w3.org/2000/01/rdf-schema#label')
   })
 
+  it('corrige le lien conformsTo historique vers la page du schéma', async () => {
+    let patched: any
+    const axios = fakeAxios({
+      get: async () => ({
+        id: 'ds1',
+        title: 'Schéma A',
+        conformsTo: { title: 'Schéma A', version: '1.1.0', url: schemaUrl('test/schema-a', '1.1.0') },
+        masterData: { standardSchema: { active: true } },
+        schema: [{ key: 'nom', type: 'string', 'x-refersTo': 'http://www.w3.org/2000/01/rdf-schema#label' }],
+        extras: { 'schema-datagouv': { name: 'test/schema-a', version: '1.1.0', schemaUrl: schemaUrl('test/schema-a', '1.1.0') } }
+      }),
+      patch: async (url, body) => { patched = body },
+      post: async () => { throw new Error('aucun post attendu') }
+    })
+    const { context } = fakeContext({ processingConfig: trackedConfig(), axios })
+    await withFetch(fetchHandler(), () => run(context))
+    assert.equal(patched.conformsTo.url, 'https://schema.data.gouv.fr/test/schema-a/')
+    assert.equal(patched.schema, undefined)
+    assert.equal(patched.title, undefined)
+  })
+
+  it('ne touche pas à un conformsTo personnalisé', async () => {
+    let patched: any
+    const axios = fakeAxios({
+      get: async () => ({
+        id: 'ds1',
+        title: 'Schéma A',
+        conformsTo: { title: 'Mon standard', version: '1.1.0', url: 'https://example.org/mon-schema' },
+        masterData: { standardSchema: { active: true } },
+        schema: [{ key: 'nom', type: 'string', 'x-refersTo': 'http://www.w3.org/2000/01/rdf-schema#label' }],
+        extras: { 'schema-datagouv': { name: 'test/schema-a', version: '1.1.0', schemaUrl: schemaUrl('test/schema-a', '1.1.0') } }
+      }),
+      patch: async (url, body) => { patched = body },
+      post: async () => { throw new Error('aucun post attendu') }
+    })
+    const { context } = fakeContext({ processingConfig: trackedConfig(), axios })
+    await withFetch(fetchHandler(), () => run(context))
+    assert.equal(patched, undefined)
+  })
+
   it('met à jour la version, le schéma et les métadonnées non personnalisées', async () => {
     let patched: any
     const previous = { version_name: '1.0.0', schema_url: schemaUrl('test/schema-a', '1.0.0') }
@@ -233,6 +276,7 @@ describe('exécution : mise à jour', () => {
     const { context } = fakeContext({ processingConfig: trackedConfig(), axios })
     await withFetch(fetchHandler(), () => run(context))
     assert.equal(patched.conformsTo.version, '1.1.0')
+    assert.equal(patched.conformsTo.url, 'https://schema.data.gouv.fr/test/schema-a/')
     assert.equal(patched.description, datasetDescription(entryA, next))
     assert.equal(patched.summary, undefined)
     assert.equal((context.processingConfig as any).createdDatasets[0].version, '1.1.0')

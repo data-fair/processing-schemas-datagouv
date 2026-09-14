@@ -4,8 +4,8 @@ Importe et met à jour les schémas tabulaires de [schema.data.gouv.fr](https://
 
 Chaque schéma importé produit un jeu de données éditable (REST) :
 
-- son schéma est la conversion de la dernière version publiée du table schema ;
-- la méta `conformsTo` porte le nom, la version et l'URL du schéma d'origine ;
+- son schéma est la conversion de la dernière version publiée du table schema : les clés des champs sont normalisées en clés data-fair (minuscules, sans accents, caractères non alphanumériques remplacés par `_`, notamment les points que data-fair interprète comme des chemins imbriqués), le nom d'origine du champ restant porté par `x-originalName` ;
+- la méta `conformsTo` porte le nom, la version et l'URL de la page du schéma sur schema.data.gouv.fr (le fichier JSON reste porté par `origin` et la description) ;
 - son résumé et sa description sont dérivés du catalogue (liens vers le schéma, la documentation, le contact, les labels) ;
 - les capacités d'indexation des champs sont adaptées automatiquement : recherche textuelle désactivée sur les codes (SIRET, code INSEE...), filtrage exact et tri désactivés sur les textes longs (réglages dans l'onglet « Indexation ») ;
 - le jeu est déclaré **master data** avec l'initialisation de jeux éditables activée : d'autres jeux de données peuvent être initialisés avec son schéma ;

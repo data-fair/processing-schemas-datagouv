@@ -248,12 +248,14 @@ export const applyConcepts = (properties: DatasetSchemaProperty[]): void => {
  * Fusionne les concepts du schéma calculé dans un schéma existant (jeu de données en place).
  * Seuls les "x-refersTo" absents sont ajoutés : un concept posé ou absent volontairement
  * côté propriétaire, ainsi que toutes ses autres personnalisations, sont préservés.
+ * Les champs créés par une version antérieure du traitement (clé brute, non normalisée)
+ * sont retrouvés par leur nom d'origine pour ne pas perdre la réparation.
  * Retourne null si rien ne change.
  */
 export const mergeConcepts = (liveSchema: any[], properties: DatasetSchemaProperty[]): any[] | null => {
   let changed = false
   const merged = liveSchema.map(liveProp => {
-    const desired = properties.find(p => p.key === liveProp.key)
+    const desired = properties.find(p => p.key === liveProp.key || p['x-originalName'] === liveProp.key)
     if (!desired?.['x-refersTo'] || liveProp['x-refersTo']) return liveProp
     changed = true
     return { ...liveProp, 'x-refersTo': desired['x-refersTo'] }

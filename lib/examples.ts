@@ -24,6 +24,7 @@ export interface ExampleCandidate {
 
 export interface ExampleSchemaProperty {
   key: string
+  'x-originalName'?: string
   'x-required'?: boolean
 }
 
@@ -141,15 +142,23 @@ export interface HeaderCheck {
 
 /**
  * Vérifie que l'en-tête de l'exemple correspond au schéma produit.
- * L'API compare les en-têtes bruts aux clés (`x-originalName`), on réécrit donc
- * l'en-tête quand seule la casse ou les accents diffèrent.
+ * Les colonnes sont identifiées par leur nom d'origine (`x-originalName`, le nom
+ * du table schema) ou par leur clé data-fair : l'API compare les en-têtes bruts
+ * au `x-originalName`, on réécrit donc l'en-tête quand seule la casse ou les
+ * accents diffèrent pour qu'il colle au schéma.
  */
 export const checkHeader = (header: string[], schema: ExampleSchemaProperty[]): HeaderCheck => {
-  const keys = schema.map(property => property.key)
-  const keyByLabel = new Map<string, string | null>()
-  for (const key of keys) {
-    const label = normalizeLabel(key)
-    keyByLabel.set(label, keyByLabel.has(label) ? null : key)
+  const originalNames = schema.map(property => property['x-originalName'] || property.key)
+  const originalByHeader = new Map<string, string>()
+  for (const property of schema) {
+    const original = property['x-originalName'] || property.key
+    originalByHeader.set(original, original)
+    originalByHeader.set(property.key, original)
+  }
+  const originalByLabel = new Map<string, string | null>()
+  for (const original of originalNames) {
+    const label = normalizeLabel(original)
+    originalByLabel.set(label, originalByLabel.has(label) ? null : original)
   }
 
   const unknown: string[] = []
@@ -158,14 +167,15 @@ export const checkHeader = (header: string[], schema: ExampleSchemaProperty[]): 
   header.forEach((cell, index) => {
     const clean = cell.trim()
     if (!clean || clean === '_action' || clean === '_id') return
-    if (keys.includes(clean)) {
-      present.add(clean)
+    const known = originalByHeader.get(clean)
+    if (known) {
+      present.add(known)
       return
     }
-    const key = keyByLabel.get(normalizeLabel(clean))
-    if (key && !present.has(key)) {
-      renamed.set(index, key)
-      present.add(key)
+    const original = originalByLabel.get(normalizeLabel(clean))
+    if (original && !present.has(original)) {
+      renamed.set(index, original)
+      present.add(original)
       return
     }
     unknown.push(clean)
@@ -173,7 +183,9 @@ export const checkHeader = (header: string[], schema: ExampleSchemaProperty[]): 
 
   return {
     unknown,
-    missingRequired: schema.filter(property => property['x-required'] && !present.has(property.key)).map(property => property.key),
+    missingRequired: schema
+      .filter(property => property['x-required'] && !present.has(property['x-originalName'] || property.key))
+      .map(property => property['x-originalName'] || property.key),
     renamed
   }
 }

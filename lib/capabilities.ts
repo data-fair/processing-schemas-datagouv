@@ -85,10 +85,17 @@ const isCodeName = (key: string): boolean => {
   return normalizeLabel(snake).split('_').some(segment => CODE_NAME_SEGMENTS.has(segment))
 }
 
+/**
+ * Les heuristiques s'appuient sur le nom d'origine du table schema : la clé
+ * data-fair est normalisée (minuscules, sans accents), ce qui efface les
+ * frontières de casse (ex. "menuCollSiret" -> "menucollsiret").
+ */
+const sourceName = (property: DatasetSchemaProperty): string => property['x-originalName'] || property.key
+
 const isCodeLike = (property: DatasetSchemaProperty): boolean => {
-  if (isCodeName(property.key)) return true
+  if (isCodeName(sourceName(property))) return true
   // le titre peut porter le signal (ex. « Numéro SIRET ») sauf s'il décrit un texte long
-  if (property.title && !LONG_TEXT_NAMES.has(normalizeLabel(property.key)) && isCodeName(property.title)) return true
+  if (property.title && !LONG_TEXT_NAMES.has(normalizeLabel(sourceName(property))) && isCodeName(property.title)) return true
   return !!property['x-refersTo'] && codeConceptIdentifiers.has(property['x-refersTo'])
 }
 
@@ -97,7 +104,7 @@ const isLongText = (property: DatasetSchemaProperty, field?: TableSchemaField): 
   if (field?.constraints?.pattern || property.pattern) return false
   if (field?.constraints?.enum) return false
   if (typeof property.maxLength === 'number' && property.maxLength >= LONG_TEXT_MIN_MAX_LENGTH) return true
-  const key = normalizeLabel(property.key)
+  const key = normalizeLabel(sourceName(property))
   if (LONG_TEXT_NAMES.has(key)) return true
   return !!property.title && LONG_TEXT_NAMES.has(normalizeLabel(property.title))
 }
@@ -116,7 +123,7 @@ export const applyCapabilities = (
   const fieldByKey = new Map(fields.map(field => [field.name, field]))
 
   for (const property of properties) {
-    const field = fieldByKey.get(property.key)
+    const field = fieldByKey.get(property['x-originalName'] || property.key)
 
     if (property['x-refersTo'] === GEOMETRY_CONCEPT) {
       if (options.vectorTiles) {

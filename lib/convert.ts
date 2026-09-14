@@ -3,7 +3,7 @@
  * schema.data.gouv.fr) en propriétés de schéma data-fair, annotées au maximum
  * avec les concepts reconnus par la plateforme.
  */
-import { applyConcepts } from './concepts.ts'
+import { applyConcepts, normalizeLabel } from './concepts.ts'
 import { applyCapabilities, type CapabilitiesOptions } from './capabilities.ts'
 
 export interface TableSchemaField {
@@ -64,13 +64,25 @@ const TYPE_MAPPING: Record<string, { type: string, format?: string }> = {
   datetime: { type: 'string', format: 'date-time' }
 }
 
+/**
+ * Clé data-fair d'un champ : data-fair interprète les points comme des chemins
+ * imbriqués (mapping elasticsearch, flatten), on normalise donc les noms en
+ * minuscules sans accent, les caractères non alphanumériques devenant "_".
+ * Le nom d'origine du table schema reste porté par "x-originalName".
+ */
+export const escapeKey = (name: string): string => normalizeLabel(name)
+
 export const convertField = (field: TableSchemaField): DatasetSchemaProperty => {
   if (!field?.name || typeof field.name !== 'string') {
     throw new Error(`Champ de schéma invalide (nom absent) : ${JSON.stringify(field)}`)
   }
+  const key = escapeKey(field.name)
+  if (!key) {
+    throw new Error(`Champ de schéma invalide (nom inexploitable en clé data-fair) : ${JSON.stringify(field.name)}`)
+  }
   const mapped = TYPE_MAPPING[field.type ?? 'string'] ?? { type: 'string' }
   const property: DatasetSchemaProperty = {
-    key: field.name,
+    key,
     title: field.title ?? field.name,
     type: mapped.type,
     'x-originalName': field.name
@@ -110,13 +122,21 @@ export const convertTableSchema = (tableSchema: TableSchema, options: Capabiliti
     seen.add(field.name)
   }
   const schema = tableSchema.fields.map(convertField)
+  const keys = new Map<string, string>()
+  for (const property of schema) {
+    const other = keys.get(property.key)
+    if (other) {
+      throw new Error(`Table schema invalide : les champs "${other}" et "${property['x-originalName']}" produisent la même clé data-fair "${property.key}".`)
+    }
+    keys.set(property.key, property['x-originalName'])
+  }
   applyConcepts(schema)
   applyCapabilities(schema, tableSchema.fields, options)
 
   let primaryKey: string[] | undefined
   if (tableSchema.primaryKey) {
     const parts = Array.isArray(tableSchema.primaryKey) ? tableSchema.primaryKey : [tableSchema.primaryKey]
-    const known = parts.filter(p => seen.has(p))
+    const known = parts.filter(p => seen.has(p)).map(escapeKey).filter(p => keys.has(p))
     if (known.length) primaryKey = known
   }
   return primaryKey?.length ? { schema, primaryKey } : { schema }
