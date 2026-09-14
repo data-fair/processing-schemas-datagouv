@@ -7,7 +7,9 @@
  * ces heuristiques à partir des informations objectives du table schema.
  */
 import type { DatasetSchemaProperty, TableSchemaField } from './convert.ts'
-import { codeConceptIdentifiers, normalizeLabel } from './concepts.ts'
+import { codeConceptIdentifiers, normalizeLabel, GEOMETRY_CONCEPT, GEOMETRY_PROJ_CONCEPT } from './concepts.ts'
+
+export { GEOMETRY_CONCEPT }
 
 export interface CapabilitiesOptions {
   /** `auto` (défaut) applique les heuristiques, `standard` laisse les défauts data-fair */
@@ -19,8 +21,6 @@ export interface CapabilitiesOptions {
   /** préparer les tuiles vectorielles des géométries */
   vectorTiles?: boolean
 }
-
-export const GEOMETRY_CONCEPT = 'https://purl.org/geojson/vocab#geometry'
 
 /** Capacités data-fair d'un champ de type code (cf. mergeFileSchema dans data-fair). */
 const CODE_CAPABILITIES = { text: false, insensitive: false }
@@ -125,7 +125,7 @@ export const applyCapabilities = (
   for (const property of properties) {
     const field = fieldByKey.get(property['x-originalName'] || property.key)
 
-    if (property['x-refersTo'] === GEOMETRY_CONCEPT) {
+    if (property['x-refersTo'] === GEOMETRY_CONCEPT || property['x-refersTo'] === GEOMETRY_PROJ_CONCEPT) {
       if (options.vectorTiles) {
         property['x-capabilities'] = { ...property['x-capabilities'], vtPrepare: true }
       }

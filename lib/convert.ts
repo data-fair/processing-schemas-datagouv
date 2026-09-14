@@ -3,7 +3,7 @@
  * schema.data.gouv.fr) en propriétés de schéma data-fair, annotées au maximum
  * avec les concepts reconnus par la plateforme.
  */
-import { applyConcepts, normalizeLabel } from './concepts.ts'
+import { applyConcepts, normalizeLabel, type SchemaProjection } from './concepts.ts'
 import { applyCapabilities, type CapabilitiesOptions } from './capabilities.ts'
 
 export interface TableSchemaField {
@@ -11,6 +11,7 @@ export interface TableSchemaField {
   title?: string
   description?: string
   type?: string
+  example?: unknown
   constraints?: {
     required?: boolean | string
     minLength?: number
@@ -108,9 +109,11 @@ export const convertField = (field: TableSchemaField): DatasetSchemaProperty => 
 
 /**
  * Convertit un table schema complet.
- * Retourne les propriétés data-fair et, si elle est déclarée et cohérente, la clé primaire.
+ * Retourne les propriétés data-fair, la clé primaire si elle est déclarée et cohérente,
+ * et la projection cartographique à poser sur le jeu de données si des champs géographiques
+ * projetés ont été identifiés (cf. applyConcepts).
  */
-export const convertTableSchema = (tableSchema: TableSchema, options: CapabilitiesOptions = {}): { schema: DatasetSchemaProperty[], primaryKey?: string[] } => {
+export const convertTableSchema = (tableSchema: TableSchema, options: CapabilitiesOptions = {}): { schema: DatasetSchemaProperty[], primaryKey?: string[], projection?: SchemaProjection, warnings?: string[] } => {
   if (!Array.isArray(tableSchema?.fields) || !tableSchema.fields.length) {
     throw new Error('Table schema invalide : aucun champ déclaré dans "fields".')
   }
@@ -130,7 +133,7 @@ export const convertTableSchema = (tableSchema: TableSchema, options: Capabiliti
     }
     keys.set(property.key, property['x-originalName'])
   }
-  applyConcepts(schema)
+  const { projection, warnings } = applyConcepts(schema, tableSchema.fields)
   applyCapabilities(schema, tableSchema.fields, options)
 
   let primaryKey: string[] | undefined
@@ -139,5 +142,10 @@ export const convertTableSchema = (tableSchema: TableSchema, options: Capabiliti
     const known = parts.filter(p => seen.has(p)).map(escapeKey).filter(p => keys.has(p))
     if (known.length) primaryKey = known
   }
-  return primaryKey?.length ? { schema, primaryKey } : { schema }
+  return {
+    schema,
+    ...(primaryKey?.length ? { primaryKey } : {}),
+    ...(projection ? { projection } : {}),
+    ...(warnings.length ? { warnings } : {})
+  }
 }

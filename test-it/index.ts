@@ -4,7 +4,16 @@ import testUtils from '@data-fair/lib-processing-dev/tests-utils.js'
 import processingConfigSchema from '../processing-config-schema.json' with { type: 'json' }
 import * as schemasDatagouv from '../index.ts'
 import { convertField, convertTableSchema } from '../lib/convert.ts'
-import { mergeConcepts } from '../lib/concepts.ts'
+import {
+  mergeConcepts,
+  COORD_X_CONCEPT,
+  COORD_Y_CONCEPT,
+  GEOMETRY_CONCEPT,
+  GEOMETRY_PROJ_CONCEPT,
+  LAT_LON_CONCEPT,
+  LATITUDE_CONCEPT,
+  LONGITUDE_CONCEPT
+} from '../lib/concepts.ts'
 import { datasetTitle, needsTitleRepair } from '../lib/datasets.ts'
 import { latestVersion, tabularEntries } from '../lib/catalog.ts'
 
@@ -158,7 +167,7 @@ describe('processing-schemas-datagouv', () => {
       const { schema } = convertTableSchema({
         fields: [
           { name: 'contact_tel', title: 'Téléphone', type: 'string' },
-          { name: 'champ_geo', title: 'Géométrie', type: 'string' }
+          { name: 'champ_geo', title: 'Géométrie', type: 'string', example: 'POLYGON((2.3 48.8, 2.4 48.8, 2.4 48.9, 2.3 48.8))' }
         ]
       })
       assert.equal(schema[0]['x-refersTo'], 'https://www.w3.org/2006/vcard/ns#tel')
@@ -192,6 +201,112 @@ describe('processing-schemas-datagouv', () => {
     it('n\'annote pas les champs sans correspondance', () => {
       const { schema } = convertTableSchema({ fields: [{ name: 'date_decision', title: 'Date de décision', type: 'date' }] })
       assert.equal(schema[0]['x-refersTo'], undefined)
+    })
+  })
+
+  describe('annotation des concepts géographiques', () => {
+    it('annote les coordonnées WGS84 explicites, y compris les conventions xlong/ylat', () => {
+      const { schema, projection } = convertTableSchema({
+        fields: [
+          { name: 'Xlong', type: 'number' },
+          { name: 'Ylat', type: 'number' },
+          { name: 'lat_wgs84', type: 'number' },
+          { name: 'lon_wgs84', type: 'number' }
+        ]
+      })
+      const byKey = Object.fromEntries(schema.map(p => [p.key, p]))
+      assert.equal(byKey.xlong['x-refersTo'], LONGITUDE_CONCEPT)
+      assert.equal(byKey.ylat['x-refersTo'], LATITUDE_CONCEPT)
+      // un seul champ annoté par concept
+      assert.equal(byKey.lat_wgs84['x-refersTo'], undefined)
+      assert.equal(byKey.lon_wgs84['x-refersTo'], undefined)
+      assert.equal(projection, undefined)
+    })
+
+    it('n\'annote pas un geopoint frictionless (ordre longitude,latitude)', () => {
+      const { schema } = convertTableSchema({ fields: [{ name: 'geopoint', type: 'geopoint' }] })
+      assert.equal(schema[0]['x-refersTo'], undefined)
+    })
+
+    it('n\'annote pas un champ "coordonnees" ambigu (adresse postale DECP)', () => {
+      const { schema } = convertTableSchema({
+        fields: [{ name: 'coordonnees', type: 'string', description: "Les coordonnées de l'acheteur concerné" }]
+      })
+      assert.equal(schema[0]['x-refersTo'], undefined)
+    })
+
+    it('annote une géométrie geojson ou WKT WGS84', () => {
+      const { schema, projection } = convertTableSchema({
+        fields: [
+          { name: 'geometrie', type: 'geojson' },
+          { name: 'champ_geo', title: 'Géométrie', type: 'string', example: 'POLYGON((2.3 48.8, 2.4 48.8, 2.4 48.9, 2.3 48.8))' }
+        ]
+      })
+      assert.equal(schema[0]['x-refersTo'], GEOMETRY_CONCEPT)
+      assert.equal(schema[1]['x-refersTo'], undefined)
+      assert.equal(projection, undefined)
+    })
+
+    it('n\'annote pas une géométrie incertaine (GML, chaîne sans exemple)', () => {
+      const gml = convertTableSchema({
+        fields: [{ name: 'geometrie', type: 'string', example: '<gml:Point xmlns:gml="http://www.opengis.net/gml/3.2"><gml:pos>1 2</gml:pos></gml:Point>' }]
+      })
+      assert.equal(gml.schema[0]['x-refersTo'], undefined)
+      const inconnue = convertTableSchema({ fields: [{ name: 'geometrie', type: 'string' }] })
+      assert.equal(inconnue.schema[0]['x-refersTo'], undefined)
+    })
+
+    it('annote une géométrie Lambert-93 avec le concept projeté et la projection du jeu', () => {
+      const { schema, projection } = convertTableSchema({
+        fields: [{
+          name: 'sect_geomsurf',
+          title: 'géométrie',
+          type: 'geojson',
+          example: { type: 'Polygon', coordinates: [[[656589.7, 6425785.32], [656655.02, 6425866.31], [656589.7, 6425785.32]]] }
+        }]
+      })
+      assert.equal(schema[0]['x-refersTo'], GEOMETRY_PROJ_CONCEPT)
+      assert.deepEqual(projection, { code: 'EPSG:2154' })
+    })
+
+    it('annote un couple x/y projeté quand la projection est explicite', () => {
+      const { schema, projection } = convertTableSchema({
+        fields: [
+          { name: 'x', title: 'x en lambert 93 (précision de 2 décimales)', type: 'number', example: '723894.42' },
+          { name: 'y', title: 'y en lambert 93 (précision de 2 décimales)', type: 'number', example: '6262032.84' }
+        ]
+      })
+      const byKey = Object.fromEntries(schema.map(p => [p.key, p]))
+      assert.equal(byKey.x['x-refersTo'], COORD_X_CONCEPT)
+      assert.equal(byKey.y['x-refersTo'], COORD_Y_CONCEPT)
+      assert.deepEqual(projection, { code: 'EPSG:2154' })
+    })
+
+    it('n\'annote pas des coordonnées projetées dont la projection est inconnue', () => {
+      const { schema, projection } = convertTableSchema({
+        fields: [
+          { name: 'coord_x', type: 'number', example: 1234567.89 },
+          { name: 'coord_y', type: 'number', example: 8765432.1 }
+        ]
+      })
+      assert.equal(schema[0]['x-refersTo'], undefined)
+      assert.equal(schema[1]['x-refersTo'], undefined)
+      assert.equal(projection, undefined)
+    })
+
+    it('n\'annote rien en cas de projections contradictoires', () => {
+      const { schema, projection, warnings } = convertTableSchema({
+        fields: [
+          { name: 'geometrie', type: 'geojson', description: 'géométrie Lambert-93', example: { type: 'Point', coordinates: [656589.7, 6425785.32] } },
+          { name: 'x', type: 'number', title: 'x', description: 'coordonnée WGS84', example: 2.3 },
+          { name: 'y', type: 'number', title: 'y', description: 'coordonnée Lambert II étendu', example: 2_200_000 }
+        ]
+      })
+      assert.equal(schema[0]['x-refersTo'], undefined)
+      assert.equal(schema[1]['x-refersTo'], undefined)
+      assert.equal(schema[2]['x-refersTo'], undefined)
+      assert.equal(projection, undefined)
+      assert.ok(warnings?.some(warning => warning.includes('contradictoires')))
     })
   })
 
@@ -231,6 +346,29 @@ describe('processing-schemas-datagouv', () => {
     it('retourne null si rien ne change', () => {
       const schema = [{ key: 'nom', type: 'string', 'x-refersTo': 'http://www.w3.org/2000/01/rdf-schema#label' }]
       assert.equal(mergeConcepts(schema, schema), null)
+    })
+
+    it('retire un concept posé par une ancienne version quand les règles ne le posent plus', () => {
+      const live = [{ key: 'coordonnees', type: 'string', 'x-refersTo': LAT_LON_CONCEPT, 'x-concept': { id: 'latLon' } }]
+      const desired = [{ key: 'coordonnees', title: 'Coordonnées', type: 'string', 'x-originalName': 'coordonnees' }]
+      const merged = mergeConcepts(live, desired)
+      assert.ok(merged)
+      assert.equal(merged![0]['x-refersTo'], undefined)
+      assert.equal(merged![0]['x-concept'], undefined)
+    })
+
+    it('corrige une géométrie WGS84 annotée à tort vers le concept projeté', () => {
+      const live = [{ key: 'sect_geomsurf', type: 'string', 'x-refersTo': GEOMETRY_CONCEPT }]
+      const desired = [{ key: 'sect_geomsurf', title: 'géométrie', type: 'string', 'x-originalName': 'sect_geomsurf', 'x-refersTo': GEOMETRY_PROJ_CONCEPT }]
+      const merged = mergeConcepts(live, desired)
+      assert.ok(merged)
+      assert.equal(merged![0]['x-refersTo'], GEOMETRY_PROJ_CONCEPT)
+    })
+
+    it('préserve un concept personnalisé qui ne vient pas de l\'ancien mapping', () => {
+      const live = [{ key: 'coordonnees', type: 'string', 'x-refersTo': 'https://example.org/mon-concept' }]
+      const desired = [{ key: 'coordonnees', title: 'Coordonnées', type: 'string', 'x-originalName': 'coordonnees' }]
+      assert.equal(mergeConcepts(live, desired), null)
     })
   })
 

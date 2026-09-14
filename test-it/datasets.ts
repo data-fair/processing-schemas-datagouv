@@ -41,7 +41,28 @@ describe('création d\'un jeu de données', () => {
     assert.equal(body.summary, 'Un résumé')
     assert.equal(body.description, 'Une description')
     assert.equal(body.isRest, true)
+    assert.equal(body.projection, undefined)
     assert.deepEqual(body.masterData, { standardSchema: { active: true } })
+  })
+
+  it('transmet la projection cartographique identifiée', async () => {
+    let body: any
+    const axios = fakeAxios({
+      post: async (url, payload) => {
+        body = payload
+        return { id: 'ds1', title: payload.title }
+      }
+    })
+    const { log } = fakeLog()
+    await createSchemaDataset(axios, {
+      title: 'Schéma de test',
+      schema,
+      projection: { code: 'EPSG:2154' },
+      conformsTo: { title: 'Test', version: '1.0.0', url: 'https://example.org/schema.json' },
+      origin: 'https://example.org/schema.json',
+      extras: {}
+    }, log)
+    assert.deepEqual(body.projection, { code: 'EPSG:2154' })
   })
 
   it('recrée sans master data si la permission est absente', async () => {

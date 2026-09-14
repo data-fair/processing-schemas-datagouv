@@ -7,6 +7,7 @@ import FormData from 'form-data'
 import { promisify } from 'node:util'
 import type { CatalogEntry } from './catalog.ts'
 import type { DatasetSchemaProperty } from './convert.ts'
+import type { SchemaProjection } from './concepts.ts'
 import { exampleCandidates, fetchExample, prepareExample, type PreparedExample } from './examples.ts'
 
 /** Axios masque la raison renvoyée par data-fair dans response.data ; JSON.stringify(err) la perd. */
@@ -41,6 +42,7 @@ export interface CreateDatasetPayload {
   description?: string
   schema: DatasetSchemaProperty[]
   primaryKey?: string[]
+  projection?: SchemaProjection
   conformsTo: { title: string, version: string, url: string }
   origin: string
   extras: Record<string, unknown>
@@ -67,6 +69,7 @@ export const createSchemaDataset = async (axios: AxiosInstance, payload: CreateD
     masterData: { standardSchema: { active: true } }
   }
   if (payload.primaryKey?.length) body.primaryKey = payload.primaryKey
+  if (payload.projection) body.projection = payload.projection
   try {
     const dataset = (await axios.post('api/v1/datasets', body)).data
     await log.info(`Jeu de données créé : ${dataset.title} (${dataset.id})`)

@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert'
 import { describe, it } from 'node:test'
 import { convertTableSchema } from '../lib/convert.ts'
 import { applyCapabilities, GEOMETRY_CONCEPT } from '../lib/capabilities.ts'
+import { GEOMETRY_PROJ_CONCEPT } from '../lib/concepts.ts'
 import type { DatasetSchemaProperty } from '../lib/convert.ts'
 
 const byKey = (schema: DatasetSchemaProperty[]) => Object.fromEntries(schema.map(property => [property.key, property]))
@@ -137,6 +138,22 @@ describe('capabilities : géométries', () => {
   it('ne touche pas aux géométries sans option', () => {
     const { schema } = convertTableSchema({ fields: [{ name: 'geometrie', type: 'geojson' }] })
     assert.equal(schema[0]['x-capabilities'], undefined)
+  })
+
+  it('active la préparation des tuiles vectorielles sur une géométrie projetée', () => {
+    const { schema } = convertTableSchema(
+      {
+        fields: [{
+          name: 'sect_geomsurf',
+          title: 'géométrie',
+          type: 'geojson',
+          example: { type: 'Point', coordinates: [656589.7, 6425785.32] }
+        }]
+      },
+      { vectorTiles: true }
+    )
+    assert.equal(schema[0]['x-refersTo'], GEOMETRY_PROJ_CONCEPT)
+    assert.deepEqual(schema[0]['x-capabilities'], { vtPrepare: true })
   })
 })
 

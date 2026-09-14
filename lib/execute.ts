@@ -235,7 +235,10 @@ const importSchema = async (
 
   await log.info(`Schéma "${entry.title}" (${entry.name}) : dernière version ${version.version_name}${known ? `, jeu de données "${known.datasetTitle}" (${known.datasetId})` : ', nouveau jeu de données'}`)
   const tableSchema = await fetchJSON(version.schema_url)
-  const { schema, primaryKey } = convertTableSchema(tableSchema, capabilitiesOptions(config))
+  const { schema, primaryKey, projection, warnings = [] } = convertTableSchema(tableSchema, capabilitiesOptions(config))
+  for (const warning of warnings) {
+    await log.warning(`Schéma "${entry.title}" (${entry.name}) : ${warning}`)
+  }
 
   // le lien "conformsTo" est affiché tel quel dans les portails : on pointe vers
   // la page de présentation du schéma, pas vers le fichier JSON (porté par origin)
@@ -256,17 +259,21 @@ const importSchema = async (
       const mergedSchema = mergeConcepts(live.schema ?? [], schema)
       if (mergedSchema) repair.schema = mergedSchema
       if (needsTitleRepair(live.title ?? '', expectedTitle)) repair.title = expectedTitle
+      // projection identifiée par les nouvelles règles (ex. géométries Lambert-93) et absente
+      // ou différente sur le jeu en place : on la pose pour que les champs projetés soient exploitables
+      if (projection && live.projection?.code !== projection.code) repair.projection = projection
       // les jeux historiques pointaient le JSON du schéma : on ne corrige le lien
       // que s'il porte encore la valeur générée, jamais une personnalisation
       if (live.conformsTo?.url && live.conformsTo.url !== schemaPageUrl(entry.name) && live.conformsTo.url === previousVersion(live, entry, known.version).schema_url) {
         repair.conformsTo = { ...live.conformsTo, url: schemaPageUrl(entry.name) }
       }
-      if (repair.schema || repair.title || repair.conformsTo) {
+      if (repair.schema || repair.title || repair.conformsTo || repair.projection) {
         if (!live.masterData) repair.masterData = { standardSchema: { active: true } }
         await patchSchemaDataset(axios, known.datasetId, repair, known.datasetTitle)
         const reasons = [
           repair.title ? 'titre corrigé' : null,
-          repair.schema ? 'concepts ajoutés' : null,
+          repair.schema ? 'concepts ajoutés ou corrigés' : null,
+          repair.projection ? 'système de projection défini' : null,
           repair.conformsTo ? 'lien du schéma corrigé' : null
         ].filter(Boolean).join(', ')
         await log.info(`Jeu de données "${known.datasetTitle}" réparé (${reasons})`)
@@ -287,6 +294,7 @@ const importSchema = async (
     } else {
       const patch: Record<string, unknown> = { schema, conformsTo, origin }
       if (primaryKey?.length) patch.primaryKey = primaryKey
+      if (projection && live.projection?.code !== projection.code) patch.projection = projection
       if (!live.masterData) patch.masterData = { standardSchema: { active: true } }
       if (needsTitleRepair(live.title ?? '', expectedTitle)) {
         patch.title = expectedTitle
@@ -310,6 +318,7 @@ const importSchema = async (
     description: datasetDescription(entry, version),
     schema,
     primaryKey,
+    projection,
     conformsTo,
     origin,
     extras: { 'schema-datagouv': { name: entry.name, version: version.version_name, schemaUrl: version.schema_url, processingId } }

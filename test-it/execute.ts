@@ -100,6 +100,32 @@ describe('exécution : création', () => {
     assert.ok(patches.some(patch => patch.createdDatasets))
   })
 
+  it('transmet la projection quand une géométrie projetée est identifiée', async () => {
+    const created: any[] = []
+    const axios = fakeAxios({
+      post: async (url, body) => {
+        if (url === 'api/v1/datasets') { created.push(body); return { id: 'ds1', title: body.title } }
+        return { nbOk: 1, nbErrors: 0 }
+      }
+    })
+    const { context } = fakeContext({
+      processingConfig: { importMode: 'select', schemas: ['test/schema-a'], loadExample: false },
+      axios
+    })
+    await withFetch(fetchHandler({
+      [schemaUrl('test/schema-a', '1.1.0')]: () => jsonResponse({
+        fields: [{
+          name: 'sect_geomsurf',
+          title: 'géométrie',
+          type: 'geojson',
+          example: { type: 'Point', coordinates: [656589.7, 6425785.32] }
+        }]
+      })
+    }), () => run(context))
+    assert.deepEqual(created[0].projection, { code: 'EPSG:2154' })
+    assert.equal(created[0].schema[0]['x-refersTo'], 'http://data.ign.fr/def/geometrie#Geometry')
+  })
+
   it('ne charge pas d\'exemple si l\'option est désactivée', async () => {
     const bulkPosts: string[] = []
     const axios = fakeAxios({
@@ -213,6 +239,40 @@ describe('exécution : mise à jour', () => {
     assert.equal(patches.length, 1)
     const nom = patches[0].schema.find((p: any) => p.key === 'nom')
     assert.equal(nom['x-refersTo'], 'http://www.w3.org/2000/01/rdf-schema#label')
+  })
+
+  it('répare la projection et les concepts géographiques obsolètes à version inchangée', async () => {
+    let patched: any
+    const axios = fakeAxios({
+      get: async () => ({
+        id: 'ds1',
+        title: 'Schéma A',
+        conformsTo: { version: '1.1.0' },
+        masterData: { standardSchema: { active: true } },
+        schema: [
+          { key: 'sect_geomsurf', type: 'string', 'x-refersTo': 'https://purl.org/geojson/vocab#geometry' },
+          { key: 'coordonnees', type: 'string', 'x-refersTo': 'http://www.w3.org/2003/01/geo/wgs84_pos#lat_long' }
+        ],
+        extras: { 'schema-datagouv': { name: 'test/schema-a', version: '1.1.0', schemaUrl: schemaUrl('test/schema-a', '1.1.0') } }
+      }),
+      patch: async (url, body) => { patched = body },
+      post: async () => { throw new Error('aucun post attendu') }
+    })
+    const { context } = fakeContext({ processingConfig: trackedConfig(), axios })
+    await withFetch(fetchHandler({
+      [schemaUrl('test/schema-a', '1.1.0')]: () => jsonResponse({
+        fields: [
+          { name: 'sect_geomsurf', title: 'géométrie', type: 'geojson', example: { type: 'Point', coordinates: [656589.7, 6425785.32] } },
+          { name: 'coordonnees', title: "Coordonnées de l'acheteur", type: 'string' }
+        ]
+      })
+    }), () => run(context))
+    assert.ok(patched)
+    assert.deepEqual(patched.projection, { code: 'EPSG:2154' })
+    const geom = patched.schema.find((property: any) => property.key === 'sect_geomsurf')
+    assert.equal(geom['x-refersTo'], 'http://data.ign.fr/def/geometrie#Geometry')
+    const coord = patched.schema.find((property: any) => property.key === 'coordonnees')
+    assert.equal(coord['x-refersTo'], undefined)
   })
 
   it('corrige le lien conformsTo historique vers la page du schéma', async () => {
