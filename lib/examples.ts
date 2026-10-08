@@ -225,7 +225,10 @@ export const exampleFile = (url: string): { fileName: string, mimeType: string, 
   return { fileName: 'example.csv', mimeType: 'text/csv', isTabular: false }
 }
 
-/** Télécharge l'exemple en rejetant les pages HTML (liens `blob` non normalisés...). */
+/** Taille maximale d'un fichier d'exemple : il est chargé en mémoire puis envoyé en une requête. */
+export const EXAMPLE_MAX_SIZE = 20 * 1024 * 1024
+
+/** Télécharge l'exemple en rejetant les pages HTML (liens `blob` non normalisés...) et les fichiers trop volumineux. */
 export const fetchExample = async (url: string): Promise<FetchedExample> => {
   const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(60000) })
   if (!res.ok) throw new Error(`erreur HTTP ${res.status}`)
@@ -233,11 +236,16 @@ export const fetchExample = async (url: string): Promise<FetchedExample> => {
   if (contentType.includes('text/html')) {
     throw new Error('le lien ne pointe pas vers un fichier de données (page HTML)')
   }
-  const { fileName, mimeType, isTabular } = exampleFile(url)
-  if (isTabular) {
-    return { url, fileName, mimeType, isTabular, buffer: Buffer.from(await res.arrayBuffer()) }
+  const tooLarge = new Error(`fichier trop volumineux pour des données d'exemple (plus de ${EXAMPLE_MAX_SIZE / 1024 / 1024} Mo)`)
+  if (Number(res.headers.get('content-length')) > EXAMPLE_MAX_SIZE) {
+    await res.body?.cancel()
+    throw tooLarge
   }
-  return { url, fileName, mimeType, isTabular, text: stripBom(await res.text()) }
+  const buffer = Buffer.from(await res.arrayBuffer())
+  if (buffer.length > EXAMPLE_MAX_SIZE) throw tooLarge
+  const { fileName, mimeType, isTabular } = exampleFile(url)
+  if (isTabular) return { url, fileName, mimeType, isTabular, buffer }
+  return { url, fileName, mimeType, isTabular, text: stripBom(buffer.toString('utf8')) }
 }
 
 export type PreparedExample =

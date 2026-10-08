@@ -17,7 +17,6 @@
     "#types/*": "./types/*"
   },
   "files": [
-    "plugin-config-schema.json",
     "processing-config-schema.json",
     "./lib/**/*"
   ],
@@ -29,7 +28,7 @@
     "data-fair-processings-plugin"
   ],
   "author": "Koumoul <contact@koumoul.com>",
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "bugs": {
     "url": "https://github.com/data-fair/processing-schemas-datagouv/issues"
   },

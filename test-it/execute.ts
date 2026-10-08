@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert'
 import { describe, it } from 'node:test'
 import { run, stop } from '../lib/execute.ts'
 import { datasetDescription } from '../lib/metadata.ts'
+import { validate } from '../types/processingConfig/index.ts'
 import type { CatalogEntry } from '../lib/catalog.ts'
 import { fakeAxios, fakeContext, jsonResponse, textResponse, withFetch } from './helpers/fake.ts'
 
@@ -200,15 +201,14 @@ describe('exécution : création', () => {
         return { nbOk: 1, nbErrors: 0 }
       }
     })
-    const { context } = fakeContext({ processingConfig: { importMode: 'all', loadExample: false }, axios })
+    const { context, logs } = fakeContext({ processingConfig: { importMode: 'all', loadExample: false }, axios })
     const handler = fetchHandler()
-    await assert.rejects(
-      withFetch(url => {
-        if (url === schemaUrl('test/schema-a', '1.1.0')) stop()
-        return handler(url)
-      }, () => run(context)),
-      /interrompu/
-    )
+    await withFetch(url => {
+      if (url === schemaUrl('test/schema-a', '1.1.0')) stop()
+      return handler(url)
+    }, () => run(context))
+    assert.ok(logs.some(entry => entry.level === 'warning' && entry.message.includes('interrompu')))
+    assert.equal((context.processingConfig as any).createdDatasets.length, 1)
   })
 })
 
@@ -342,6 +342,69 @@ describe('exécution : mise à jour', () => {
     assert.equal((context.processingConfig as any).createdDatasets[0].version, '1.1.0')
   })
 
+  it('fusionne le schéma lors d\'une montée de version sans perdre de colonne', async () => {
+    let patched: any
+    const axios = fakeAxios({
+      get: async () => ({
+        id: 'ds1',
+        title: 'Schéma A',
+        conformsTo: { version: '1.0.0' },
+        masterData: { standardSchema: { active: true } },
+        schema: [
+          { key: 'nom', type: 'string', title: 'Ancien titre', 'x-required': true, 'x-capabilities': { values: false } },
+          { key: 'commentaire_interne', type: 'string', title: 'Ajout du propriétaire' },
+          { key: '_id', type: 'string', 'x-calculated': true }
+        ],
+        extras: { 'schema-datagouv': { name: 'test/schema-a', version: '1.0.0', schemaUrl: schemaUrl('test/schema-a', '1.0.0'), processingId: 'test-processing' } }
+      }),
+      patch: async (url, body) => { patched = body },
+      post: async () => { throw new Error('aucun post attendu') }
+    })
+    const { context, logs } = fakeContext({ processingConfig: trackedConfig(), axios })
+    await withFetch(fetchHandler(), () => run(context))
+    const keys = patched.schema.map((p: any) => p.key)
+    assert.deepEqual(keys, ['nom', 'siret', 'code_insee', 'commentaire_interne'])
+    const nom = patched.schema[0]
+    assert.equal(nom.title, 'nom')
+    assert.equal(nom['x-required'], undefined)
+    assert.deepEqual(nom['x-capabilities'], { values: false })
+    assert.ok(logs.some(entry => entry.level === 'warning' && entry.message.includes('commentaire_interne')))
+    assert.deepEqual(patched.extras['schema-datagouv'], { name: 'test/schema-a', version: '1.1.0', schemaUrl: schemaUrl('test/schema-a', '1.1.0'), processingId: 'test-processing' })
+  })
+
+  it('corrige un pattern refusé par data-fair à version inchangée', async () => {
+    let patched: any
+    const axios = fakeAxios({
+      get: async () => ({
+        id: 'ds1',
+        title: 'Schéma A',
+        conformsTo: { version: '1.1.0' },
+        masterData: { standardSchema: { active: true } },
+        schema: [{ key: 'nom', type: 'string', pattern: "^[a-z\\'\\-]+$", 'x-refersTo': 'http://www.w3.org/2000/01/rdf-schema#label' }],
+        extras: { 'schema-datagouv': { name: 'test/schema-a', version: '1.1.0', schemaUrl: schemaUrl('test/schema-a', '1.1.0') } }
+      }),
+      patch: async (url, body) => { patched = body },
+      post: async () => { throw new Error('aucun post attendu') }
+    })
+    const { context } = fakeContext({ processingConfig: trackedConfig(), axios })
+    await withFetch(fetchHandler(), () => run(context))
+    assert.equal(patched.schema[0].pattern, "^(?:^[a-z'\\-]+$)$")
+  })
+
+  it('ignore un schéma sélectionné disparu du catalogue sans bloquer les autres', async () => {
+    const created: any[] = []
+    const axios = fakeAxios({
+      post: async (url, body) => {
+        if (url === 'api/v1/datasets') { created.push(body); return { id: 'ds2', title: body.title } }
+        return { nbOk: 1, nbErrors: 0 }
+      }
+    })
+    const { context, logs } = fakeContext({ processingConfig: { importMode: 'select', schemas: ['test/disparu', 'test/schema-b'], loadExample: false }, axios })
+    await withFetch(fetchHandler(), () => run(context))
+    assert.equal(created.length, 1)
+    assert.ok(logs.some(entry => entry.level === 'warning' && entry.message.includes('test/disparu')))
+  })
+
   it('ne touche pas aux métadonnées personnalisées', async () => {
     let patched: any
     const axios = fakeAxios({
@@ -393,7 +456,7 @@ describe('exécution : suppression', () => {
 
   const noFetch = () => { throw new Error('aucun fetch attendu') }
 
-  it('supprime tous les jeux suivis, vide le suivi et revient à l\'import', async () => {
+  it('supprime tous les jeux suivis, vide le suivi et garde une configuration valide', async () => {
     const deleted: string[] = []
     const axios = fakeAxios({
       delete: async url => { deleted.push(url) },
@@ -405,8 +468,11 @@ describe('exécution : suppression', () => {
 
     assert.deepEqual(deleted.sort(), ['api/v1/datasets/ds1', 'api/v1/datasets/ds2'])
     assert.deepEqual((context.processingConfig as any).createdDatasets, [])
-    assert.equal((context.processingConfig as any).action, 'import')
-    assert.ok(patches.some(patch => patch.action === 'import' && Array.isArray(patch.createdDatasets) && patch.createdDatasets.length === 0))
+    // repasser sur l'import sans schéma sélectionné rendrait la configuration invalide :
+    // l'API des traitements refuserait alors toute modification du traitement
+    assert.equal((context.processingConfig as any).action, 'delete')
+    assert.ok(patches.some(patch => Array.isArray(patch.createdDatasets) && patch.createdDatasets.length === 0))
+    assert.ok(validate(context.processingConfig), JSON.stringify((validate as any).errors))
     assert.ok(logs.some(entry => entry.level === 'info' && entry.message.includes('2 supprimé(s)')))
   })
 
@@ -419,7 +485,7 @@ describe('exécution : suppression', () => {
     await withFetch(noFetch, () => run(context))
 
     assert.deepEqual((context.processingConfig as any).createdDatasets, [])
-    assert.equal((context.processingConfig as any).action, 'import')
+    assert.equal((context.processingConfig as any).action, 'delete')
     assert.ok(logs.some(entry => entry.level === 'info' && entry.message.includes('déjà absent')))
   })
 
@@ -452,7 +518,7 @@ describe('exécution : suppression', () => {
     await withFetch(noFetch, () => run(context))
 
     assert.equal(deleted, 0)
-    assert.equal((context.processingConfig as any).action, 'import')
+    assert.equal((context.processingConfig as any).action, 'delete')
   })
 
   it('retrouve les jeux créés via leurs métadonnées quand le suivi est vide', async () => {
@@ -476,7 +542,7 @@ describe('exécution : suppression', () => {
 
     assert.deepEqual(deleted, ['api/v1/datasets/ds2'])
     assert.deepEqual((context.processingConfig as any).createdDatasets, [])
-    assert.equal((context.processingConfig as any).action, 'import')
+    assert.equal((context.processingConfig as any).action, 'delete')
     assert.ok(logs.some(entry => entry.level === 'warning' && entry.message.includes('métadonnées')))
   })
 
@@ -497,7 +563,7 @@ describe('exécution : suppression', () => {
     await withFetch(noFetch, () => run(context))
 
     assert.equal(deleted, 0)
-    assert.equal((context.processingConfig as any).action, 'import')
+    assert.equal((context.processingConfig as any).action, 'delete')
     assert.ok(logs.some(entry => entry.level === 'warning' && entry.message.includes('sans processingId')))
     assert.ok(logs.some(entry => entry.level === 'warning' && entry.message.includes('ds1')))
   })
@@ -519,7 +585,7 @@ describe('exécution : suppression', () => {
     await withFetch(noFetch, () => run(context))
 
     assert.equal(deleted, 0)
-    assert.equal((context.processingConfig as any).action, 'import')
+    assert.equal((context.processingConfig as any).action, 'delete')
   })
 
   it('ne recherche pas les jeux quand le suivi est renseigné', async () => {

@@ -12,9 +12,32 @@ import { exampleCandidates, fetchExample, prepareExample, type PreparedExample }
 
 /** Axios masque la raison renvoyée par data-fair dans response.data ; JSON.stringify(err) la perd. */
 export const describeError = (err: any): string => {
-  const detail = err.response?.data
+  const detail = err.data ?? err.response?.data
   const body = typeof detail === 'string' ? detail : detail ? JSON.stringify(detail) : ''
   return body ? `${err.message} : ${body}` : err.message
+}
+
+/** Statut HTTP d'une erreur axios, brute (worker) ou simplifiée (lib-processing-dev). */
+const errorStatus = (err: any): number | undefined => err.status ?? err.response?.status
+
+/**
+ * Le worker ne rejoue pas les POST/PATCH vers data-fair : on rejoue ici les réponses 429
+ * (limitation de débit), avec une pause fixe. Les autres erreurs, en particulier les 5xx
+ * d'une création qui a pu aboutir, ne sont pas rejouées. `fn` reconstruit la requête à
+ * chaque tentative (un corps FormData ne se lit qu'une fois).
+ */
+export const dfRetry = async <T>(fn: () => Promise<T>, log?: LogFunctions, retries = 3, delayMs = 10000): Promise<T> => {
+  let attempt = 0
+  while (true) {
+    try {
+      return await fn()
+    } catch (err: any) {
+      if (errorStatus(err) !== 429 || attempt >= retries) throw err
+      attempt++
+      if (log) await log.warning(`429 reçu de data-fair — pause ${delayMs / 1000}s avant nouvelle tentative (${attempt}/${retries})`)
+      await new Promise(resolve => setTimeout(resolve, delayMs))
+    }
+  }
 }
 
 const SCHEMA_TITLE_RE = /^sch[ée]ma\b/i
@@ -71,14 +94,14 @@ export const createSchemaDataset = async (axios: AxiosInstance, payload: CreateD
   if (payload.primaryKey?.length) body.primaryKey = payload.primaryKey
   if (payload.projection) body.projection = payload.projection
   try {
-    const dataset = (await axios.post('api/v1/datasets', body)).data
+    const dataset = (await dfRetry(() => axios.post('api/v1/datasets', body), log)).data
     await log.info(`Jeu de données créé : ${dataset.title} (${dataset.id})`)
     return { id: dataset.id, title: dataset.title }
   } catch (err: any) {
-    if (err.response?.status === 403) {
+    if (errorStatus(err) === 403) {
       await log.warning(`Permission "manageMasterData" manquante pour le propriétaire du traitement : le jeu "${payload.title}" sera créé sans activation de l'initialisation de jeux éditables.`)
       delete body.masterData
-      const dataset = (await axios.post('api/v1/datasets', body)).data
+      const dataset = (await dfRetry(() => axios.post('api/v1/datasets', body), log)).data
       await log.info(`Jeu de données créé : ${dataset.title} (${dataset.id})`)
       return { id: dataset.id, title: dataset.title }
     }
@@ -90,7 +113,7 @@ export const getDataset = async (axios: AxiosInstance, id: string): Promise<any 
   try {
     return (await axios.get(`api/v1/datasets/${id}`)).data
   } catch (err: any) {
-    if (err.response?.status === 404) return null
+    if (errorStatus(err) === 404) return null
     throw new Error(describeError(err))
   }
 }
@@ -101,7 +124,7 @@ export const getDataset = async (axios: AxiosInstance, id: string): Promise<any 
  */
 export const patchSchemaDataset = async (axios: AxiosInstance, id: string, patch: Record<string, unknown>, title: string): Promise<void> => {
   try {
-    await axios.patch(`api/v1/datasets/${id}`, patch)
+    await dfRetry(() => axios.patch(`api/v1/datasets/${id}`, patch))
   } catch (err: any) {
     throw new Error(`Échec de la mise à jour du jeu de données "${title}" : ${describeError(err)}`)
   }
@@ -118,7 +141,7 @@ export const deleteDataset = async (axios: AxiosInstance, id: string, title: str
     await axios.delete(`api/v1/datasets/${id}`)
     return true
   } catch (err: any) {
-    if (err.response?.status === 404) return false
+    if (errorStatus(err) === 404) return false
     throw new Error(`Échec de la suppression du jeu de données "${title}" : ${describeError(err)}`)
   }
 }
@@ -153,7 +176,7 @@ export const loadExampleData = async (
     }
 
     try {
-      const result = await postExample(axios, datasetId, prepared)
+      const result = await dfRetry(() => postExample(axios, datasetId, prepared), log)
       const nbOk = result?.nbOk ?? 0
       const nbErrors = result?.nbErrors ?? 0
       if (nbOk > 0) {

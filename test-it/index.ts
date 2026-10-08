@@ -3,7 +3,7 @@ import { describe, it } from 'node:test'
 import testUtils from '@data-fair/lib-processing-dev/tests-utils.js'
 import processingConfigSchema from '../processing-config-schema.json' with { type: 'json' }
 import * as schemasDatagouv from '../index.ts'
-import { convertField, convertTableSchema } from '../lib/convert.ts'
+import { convertField, convertTableSchema, sanitizePattern } from '../lib/convert.ts'
 import {
   mergeConcepts,
   COORD_X_CONCEPT,
@@ -78,7 +78,35 @@ describe('processing-schemas-datagouv', () => {
       assert.equal(property['x-required'], true)
       assert.equal(property.minLength, 14)
       assert.equal(property.maxLength, 14)
-      assert.equal(property.pattern, '^\\d{14}$')
+      assert.equal(property.pattern, '^(?:^\\d{14}$)$')
+    })
+
+    it('rend les patterns compilables en mode unicode et les ancre', () => {
+      // patterns réels (scdl, CEREMA) refusés par l'ajv de data-fair à cause des échappements inutiles
+      const address = sanitizePattern("^[a-zA-Z0-9\\-\\–\\'\\’\\s\\dÀ-ÿ\\(\\)\\,\\.]+$")!
+      assert.ok(new RegExp(address, 'u').test("12 rue de l'Église - bât. A"))
+      const period = sanitizePattern('^[0-9]{4}\\-[0-9]{2}\\-[0-9]{2}(\\/[0-9]{4}\\-[0-9]{2}\\-[0-9]{2})?$')!
+      assert.ok(new RegExp(period, 'u').test('2020-01-01/2020-12-31'))
+      // \- reste un tiret littéral dans une classe de caractères, pas un intervalle
+      const klass = new RegExp(sanitizePattern('[a\\-z]')!, 'u')
+      assert.ok(klass.test('-'))
+      assert.ok(!klass.test('b'))
+      // ancrage implicite des table schemas
+      assert.ok(!new RegExp(sanitizePattern('[0-9]{5}')!, 'u').test('750001'))
+    })
+
+    it('ignore avec un avertissement un pattern inexploitable', () => {
+      const { schema, warnings } = convertTableSchema({ fields: [{ name: 'code', type: 'string', constraints: { pattern: '(?i)^abc$' } }] })
+      assert.equal(schema[0].pattern, undefined)
+      assert.match(warnings![0], /pattern du champ "code" ignorée/)
+    })
+
+    it('convertit les listes de valeurs en libellés restreints', () => {
+      const property = convertField({ name: 'statut', type: 'string', constraints: { enum: ['ouvert', 'fermé'] } })
+      assert.deepEqual(property['x-labels'], { ouvert: 'ouvert', fermé: 'fermé' })
+      assert.equal(property['x-labelsRestricted'], true)
+      const number = convertField({ name: 'taux', type: 'number', constraints: { enum: [1, 2] } })
+      assert.equal(number['x-labels'], undefined)
     })
 
     it('ne porte les bornes numériques que sur les champs numériques', () => {
@@ -336,7 +364,7 @@ describe('processing-schemas-datagouv', () => {
         { key: 'nom', type: 'string', title: 'Nom', 'x-refersTo': 'http://www.w3.org/2000/01/rdf-schema#label' },
         { key: 'latitude', type: 'number', 'x-refersTo': 'http://schema.org/latitude' }
       ]
-      const merged = mergeConcepts(live, desired)
+      const merged = mergeConcepts(live, desired as any)
       assert.ok(merged)
       assert.equal(merged![0]['x-refersTo'], 'http://www.w3.org/2000/01/rdf-schema#label')
       assert.equal(merged![1]['x-refersTo'], 'http://schema.org/latitude')
@@ -345,7 +373,7 @@ describe('processing-schemas-datagouv', () => {
 
     it('retourne null si rien ne change', () => {
       const schema = [{ key: 'nom', type: 'string', 'x-refersTo': 'http://www.w3.org/2000/01/rdf-schema#label' }]
-      assert.equal(mergeConcepts(schema, schema), null)
+      assert.equal(mergeConcepts(schema, schema as any), null)
     })
 
     it('retire un concept posé par une ancienne version quand les règles ne le posent plus', () => {

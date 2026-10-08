@@ -69,7 +69,7 @@ export const textResponse = (text: string, contentType = 'text/csv', status = 20
   new Response(text, { status, headers: { 'content-type': contentType } })
 
 export const binaryResponse = (buffer: Buffer, contentType = 'application/octet-stream'): Response =>
-  new Response(buffer, { headers: { 'content-type': contentType } })
+  new Response(new Uint8Array(buffer), { headers: { 'content-type': contentType } })
 
 /** Remplace fetch le temps d'un test, sans laisser de mock derrière soi. */
 export const withFetch = async <T>(handler: (url: string) => Promise<Response> | Response, fn: () => Promise<T>): Promise<T> => {

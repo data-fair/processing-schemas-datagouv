@@ -1,7 +1,7 @@
 import type { ProcessingContext } from '@data-fair/lib-common-types/processings.js'
 import type { ProcessingConfig } from '#types/processingConfig/index.ts'
 import { fetchCatalog, fetchJSON, latestVersion, tabularEntries, type CatalogEntry, type CatalogVersion } from './catalog.ts'
-import { convertTableSchema } from './convert.ts'
+import { convertTableSchema, mergeSchema, repairPatterns } from './convert.ts'
 import type { CapabilitiesOptions } from './capabilities.ts'
 import { mergeConcepts } from './concepts.ts'
 import { datasetDescription, datasetSummary, metadataPatch, schemaPageUrl } from './metadata.ts'
@@ -11,10 +11,6 @@ let shouldBeStopped = false
 
 export const stop = async () => {
   shouldBeStopped = true
-}
-
-const throwIfStopped = () => {
-  if (shouldBeStopped) throw new Error('Traitement interrompu.')
 }
 
 export interface TrackedDataset {
@@ -45,10 +41,11 @@ export const run = async (context: ProcessingContext<ProcessingConfig>) => {
   } else {
     const wanted: string[] = config.schemas ?? []
     const unknown = wanted.filter(name => !byName.has(name))
-    if (unknown.length) {
-      throw new Error(`Schémas introuvables dans le catalogue : ${unknown.join(', ')}`)
+    // un schéma retiré ou renommé dans le catalogue ne bloque pas la mise à jour des autres
+    for (const name of unknown) {
+      await log.warning(`Schéma "${name}" introuvable dans le catalogue (retiré ou renommé ?) : ignoré, son jeu de données éventuel est conservé sans mise à jour.`)
     }
-    selected = wanted.map(name => byName.get(name)!)
+    selected = wanted.filter(name => byName.has(name)).map(name => byName.get(name)!)
     await log.info(`${selected.length} schéma(s) sélectionné(s)`)
   }
   if (!selected.length) throw new Error('Aucun schéma à importer : sélectionnez au moins un schéma tabulaire.')
@@ -57,7 +54,10 @@ export const run = async (context: ProcessingContext<ProcessingConfig>) => {
   const counts = { created: 0, updated: 0, unchanged: 0, skipped: 0, failed: 0 }
 
   for (const entry of selected) {
-    throwIfStopped()
+    if (shouldBeStopped) {
+      await log.warning('Traitement interrompu : les schémas restants ne sont pas importés.')
+      return
+    }
     try {
       if (entry.schema_type && entry.schema_type !== 'tableschema') {
         await log.warning(`"${entry.name}" ignoré : type de schéma "${entry.schema_type}" non tabulaire, seul un table schema peut être importé.`)
@@ -72,7 +72,7 @@ export const run = async (context: ProcessingContext<ProcessingConfig>) => {
   }
 
   if (config.importMode !== 'all') {
-    const orphans = tracked.filter(t => !selected.some(e => e.name === t.schemaName))
+    const orphans = tracked.filter(t => !(config.schemas ?? []).includes(t.schemaName))
     for (const orphan of orphans) {
       await log.info(`Le schéma "${orphan.schemaName}" n'est plus sélectionné : son jeu de données "${orphan.datasetTitle}" (${orphan.datasetId}) est conservé sans mise à jour.`)
     }
@@ -87,9 +87,8 @@ export const run = async (context: ProcessingContext<ProcessingConfig>) => {
 /**
  * Supprime tous les jeux de données créés par le traitement.
  *
- * Action ponctuelle : les jeux supprimés sont retirés du suivi, les échecs y restent
- * pour être retentés au prochain run, et l'action revient à l'import une fois le
- * nettoyage terminé.
+ * Les jeux supprimés sont retirés du suivi, les échecs y restent pour être retentés
+ * au prochain run. L'action reste "delete" : relancer l'exécution ne supprime rien de plus.
  */
 const deleteCreatedDatasets = async (context: ProcessingContext<ProcessingConfig>) => {
   const { processingConfig, axios, log, patchConfig, processingId } = context
@@ -101,7 +100,6 @@ const deleteCreatedDatasets = async (context: ProcessingContext<ProcessingConfig
     tracked = await discoverCreatedDatasets(axios, processingId, log)
     if (!tracked.length) {
       await log.info('Aucun jeu de données créé par ce traitement à supprimer.')
-      await patchConfig({ action: 'import' } as any)
       return
     }
   }
@@ -133,11 +131,10 @@ const deleteCreatedDatasets = async (context: ProcessingContext<ProcessingConfig
   }
 
   // persisté avant de conclure : les jeux supprimés ne doivent pas être retentés au
-  // prochain run, et l'action reste "delete" tant qu'il reste des échecs à retenter
-  await patchConfig({
-    createdDatasets: remaining.map(t => ({ ...t })),
-    ...(shouldBeStopped || failed ? {} : { action: 'import' })
-  } as any)
+  // prochain run. L'action reste "delete" (une nouvelle exécution ne trouve plus rien
+  // à supprimer) : la repasser sur l'import sans schéma sélectionné rendrait la
+  // configuration invalide et ferait refuser toute modification du traitement.
+  await patchConfig({ createdDatasets: remaining.map(t => ({ ...t })) } as any)
 
   await log.step('Bilan')
   await log.info(`${deleted} supprimé(s), ${missing} déjà absent(s), ${failed} en échec`)
@@ -256,7 +253,9 @@ const importSchema = async (
       // historiquement (titre préfixé en double, concepts absents, lien conformsTo vers
       // le JSON) — jamais les personnalisations du propriétaire du jeu de données
       const repair: Record<string, unknown> = {}
-      const mergedSchema = mergeConcepts(live.schema ?? [], schema)
+      const conceptsSchema = mergeConcepts(live.schema ?? [], schema)
+      const patternsSchema = repairPatterns(conceptsSchema ?? live.schema ?? [])
+      const mergedSchema = patternsSchema ?? conceptsSchema
       if (mergedSchema) repair.schema = mergedSchema
       if (needsTitleRepair(live.title ?? '', expectedTitle)) repair.title = expectedTitle
       // projection identifiée par les nouvelles règles (ex. géométries Lambert-93) et absente
@@ -272,7 +271,8 @@ const importSchema = async (
         await patchSchemaDataset(axios, known.datasetId, repair, known.datasetTitle)
         const reasons = [
           repair.title ? 'titre corrigé' : null,
-          repair.schema ? 'concepts ajoutés ou corrigés' : null,
+          conceptsSchema ? 'concepts ajoutés ou corrigés' : null,
+          patternsSchema ? 'patterns corrigés' : null,
           repair.projection ? 'système de projection défini' : null,
           repair.conformsTo ? 'lien du schéma corrigé' : null
         ].filter(Boolean).join(', ')
@@ -292,7 +292,14 @@ const importSchema = async (
       }
       return
     } else {
-      const patch: Record<string, unknown> = { schema, conformsTo, origin }
+      // fusion plutôt que remplacement : data-fair supprimerait les données des colonnes absentes
+      const merged = mergeSchema(live.schema ?? [], schema)
+      if (merged.kept.length) {
+        await log.warning(`Jeu de données "${known.datasetTitle}" : colonnes absentes de la version ${version.version_name} conservées avec leurs données (à supprimer manuellement si besoin) : ${merged.kept.join(', ')}`)
+      }
+      const patch: Record<string, unknown> = { schema: merged.schema, conformsTo, origin }
+      const extra = live.extras?.['schema-datagouv']
+      patch.extras = { ...live.extras, 'schema-datagouv': { ...extra, name: entry.name, version: version.version_name, schemaUrl: version.schema_url } }
       if (primaryKey?.length) patch.primaryKey = primaryKey
       if (projection && live.projection?.code !== projection.code) patch.projection = projection
       if (!live.masterData) patch.masterData = { standardSchema: { active: true } }

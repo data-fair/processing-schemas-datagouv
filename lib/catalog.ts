@@ -14,6 +14,10 @@ export interface CatalogEntry {
   description?: string
   schema_type?: string
   homepage?: string
+  external_doc?: string
+  external_tool?: string
+  contact?: string
+  labels?: string[]
   examples?: { title?: string, path?: string }[]
   versions: CatalogVersion[]
   schema_url?: string

@@ -12,14 +12,21 @@ Chaque schéma importé produit un jeu de données éditable (REST) :
 - le jeu est déclaré **master data** avec l'initialisation de jeux éditables activée : d'autres jeux de données peuvent être initialisés avec son schéma ;
 - optionnellement, les données d'exemple publiées avec le schéma sont chargées comme premières lignes. Les exemples invalides, obsolètes ou non téléchargeables sont ignorés avec un avertissement, sans bloquer l'import.
 
-À chaque exécution, les jeux déjà créés sont mis à jour vers la dernière version publiée du schéma (sinon ils sont laissés inchangés). Le résumé et la description ne sont rafraîchis que s'ils n'ont pas été personnalisés. Les annotations géographiques posées par une version antérieure du traitement sont corrigées ou retirées (et la projection ajoutée) sans toucher aux personnalisations du propriétaire.
+À chaque exécution, les jeux déjà créés sont mis à jour vers la dernière version publiée du schéma (sinon ils sont laissés inchangés). Le schéma du jeu est fusionné avec la nouvelle version : les colonnes absentes de celle-ci (renommées par le schéma ou ajoutées par le propriétaire) sont conservées avec leurs données et signalées dans le journal, les concepts et capacités d'indexation choisis par le propriétaire sont préservés. Un schéma sélectionné qui a disparu du catalogue est ignoré avec un avertissement. Le résumé et la description ne sont rafraîchis que s'ils n'ont pas été personnalisés. Les annotations géographiques posées par une version antérieure du traitement sont corrigées ou retirées (et la projection ajoutée) sans toucher aux personnalisations du propriétaire.
 
-L'onglet « Action » propose aussi une action ponctuelle de nettoyage : « Supprimer les jeux de données créés » supprime tous les jeux suivis par le traitement (y compris leurs personnalisations), puis l'action repasse automatiquement sur l'import et l'exécution s'arrête sans rien importer. Seuls les jeux portant l'identifiant de ce traitement sont supprimés : d'anciens jeux marqués comme issus du catalogue mais sans cet identifiant sont signalés dans le journal et laissés en place, pour un nettoyage manuel. Un jeu déjà supprimé manuellement est ignoré ; en cas d'échec, les jeux restants sont conservés et l'action sera retentée à l'exécution suivante.
+L'onglet « Action » propose aussi une action ponctuelle de nettoyage : « Supprimer les jeux de données créés » supprime tous les jeux suivis par le traitement (y compris leurs personnalisations) ; l'action reste ensuite sur la suppression, une nouvelle exécution ne supprimant rien de plus. Pour reprendre les imports, repasser sur une action d'import et resélectionner des schémas. Seuls les jeux portant l'identifiant de ce traitement sont supprimés : d'anciens jeux marqués comme issus du catalogue mais sans cet identifiant sont signalés dans le journal et laissés en place, pour un nettoyage manuel. Un jeu déjà supprimé manuellement est ignoré ; en cas d'échec, les jeux restants sont conservés et l'action sera retentée à l'exécution suivante.
 
-## Publication
+## Développement
 
-```bash
-npm version minor
-npm publish
-git push --follow-tags
+```sh
+npm i
+npm run build-types
+npm run lint
+npm test
 ```
+
+Le test d'intégration se lance contre une instance réelle en renseignant `config/local-test.mjs` (gitignoré) avec `dataFairUrl` et `dataFairAPIKey`.
+
+## Release
+
+Les plugins sont récupérés depuis le registre avec le mot-clé `data-fair-processings-plugin`. Ne pas modifier `version` à la main : les publications sont déclenchées par les tags (`publish-staging.yml`, `publish-production.yml`).

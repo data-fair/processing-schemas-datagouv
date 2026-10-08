@@ -9,14 +9,21 @@
   "allOf": [
     {
       "title": "Action",
-      "description": "Chaque schéma tabulaire importé produit un jeu de données éditable, dont le schéma est initialisé depuis la dernière version publiée sur [schema.data.gouv.fr](https://schema.data.gouv.fr). Les jeux créés sont suivis par ce traitement et mis à jour aux exécutions suivantes.",
+      "description": "Each imported table schema produces an editable dataset, whose schema is initialized from the latest version published on [schema.data.gouv.fr](https://schema.data.gouv.fr). The created datasets are tracked by this processing and updated on the following runs.",
+      "x-i18n-description": {
+        "fr": "Chaque schéma tabulaire importé produit un jeu de données éditable, dont le schéma est initialisé depuis la dernière version publiée sur [schema.data.gouv.fr](https://schema.data.gouv.fr). Les jeux créés sont suivis par ce traitement et mis à jour aux exécutions suivantes."
+      },
       "default": {
         "action": "import",
         "importMode": "select"
       },
       "oneOf": [
         {
-          "title": "Importer les schémas sélectionnés",
+          "title": "Selected schemas import",
+          "x-i18n-title": {
+            "en": "Import the selected schemas",
+            "fr": "Importer les schémas sélectionnés"
+          },
           "required": ["importMode", "schemas"],
           "properties": {
             "action": {
@@ -27,20 +34,24 @@
             "importMode": {
               "type": "string",
               "const": "select",
-              "title": "Mode d'import"
+              "title": "Import mode",
+              "x-i18n-title": { "fr": "Mode d'import" }
             },
             "schemas": {
               "type": "array",
-              "title": "Schémas à importer",
-              "description": "Un jeu de données éditable est créé ou mis à jour par schéma sélectionné. Seuls les schémas de type « table schema » sont importables, les autres entrées du catalogue sont ignorées.",
-              "minItems": 1,
-              "items": {
-                "type": "string"
+              "title": "Schemas to import",
+              "x-i18n-title": { "fr": "Schémas à importer" },
+              "description": "An editable dataset is created or updated for each selected schema. Only \"table schema\" entries of the catalog can be imported.",
+              "x-i18n-description": {
+                "fr": "Un jeu de données éditable est créé ou mis à jour par schéma sélectionné. Seuls les schémas de type « table schema » sont importables, les autres entrées du catalogue sont ignorées."
               },
+              "minItems": 1,
+              "items": { "type": "string" },
               "layout": {
+                "comp": "autocomplete",
                 "getItems": {
                   "url": "https://schema.data.gouv.fr/schemas.json",
-                  "itemsResults": "data.schemas",
+                  "itemsResults": "data.schemas.filter(schema => schema.schema_type === 'tableschema')",
                   "itemKey": "item.name",
                   "itemTitle": "item.title",
                   "itemSubtitle": "item.name"
@@ -50,7 +61,11 @@
           }
         },
         {
-          "title": "Importer tous les schémas tabulaires",
+          "title": "All table schemas import",
+          "x-i18n-title": {
+            "en": "Import all table schemas",
+            "fr": "Importer tous les schémas tabulaires"
+          },
           "required": ["importMode"],
           "properties": {
             "action": {
@@ -61,12 +76,17 @@
             "importMode": {
               "type": "string",
               "const": "all",
-              "title": "Mode d'import"
+              "title": "Import mode",
+              "x-i18n-title": { "fr": "Mode d'import" }
             }
           }
         },
         {
-          "title": "Supprimer les jeux de données créés",
+          "title": "Created datasets deletion",
+          "x-i18n-title": {
+            "en": "Delete the created datasets",
+            "fr": "Supprimer les jeux de données créés"
+          },
           "required": ["action"],
           "properties": {
             "action": {
@@ -79,7 +99,10 @@
             "children": [
               "action",
               {
-                "markdown": "**Action destructrice.** À la prochaine exécution, supprime définitivement tous les jeux de données créés par ce traitement, y compris leurs personnalisations (données, permissions, métadonnées). L'action repasse ensuite sur « importer » et l'exécution s'arrête sans rien importer.\n\nSeuls les jeux portant l'identifiant de ce traitement sont supprimés : d'anciens jeux marqués comme issus du catalogue mais sans cet identifiant sont signalés dans le journal et laissés en place, pour un nettoyage manuel.\n\nLa sélection des schémas est effacée au passage : si ce traitement est planifié, resélectionnez des schémas après le nettoyage pour reprendre les imports, ou supprimez le traitement pour un arrêt définitif.\n\nUn jeu déjà supprimé manuellement est ignoré. En cas d'échec, les jeux restants sont conservés et l'action sera retentée à l'exécution suivante."
+                "markdown": "**Destructive action.** On the next run, permanently deletes every dataset created by this processing, including its customizations (data, permissions, metadata). The action then stays on deletion: a new run deletes nothing more.\n\nOnly the datasets carrying the identifier of this processing are deleted: older datasets marked as coming from the catalog but without this identifier are reported in the log and left in place, for a manual cleanup.\n\nThe schemas selection is cleared on the way: to resume the imports, switch back to an import action and select schemas again, or delete the processing to stop for good.\n\nA dataset already deleted manually is ignored. On failure, the remaining datasets are kept and the action is retried on the next run.",
+                "x-i18n-markdown": {
+                  "fr": "**Action destructrice.** À la prochaine exécution, supprime définitivement tous les jeux de données créés par ce traitement, y compris leurs personnalisations (données, permissions, métadonnées). L'action reste ensuite sur « supprimer » : une nouvelle exécution ne supprime rien de plus.\n\nSeuls les jeux portant l'identifiant de ce traitement sont supprimés : d'anciens jeux marqués comme issus du catalogue mais sans cet identifiant sont signalés dans le journal et laissés en place, pour un nettoyage manuel.\n\nLa sélection des schémas est effacée au passage : pour reprendre les imports, repassez sur une action d'import et resélectionnez des schémas, ou supprimez le traitement pour un arrêt définitif.\n\nUn jeu déjà supprimé manuellement est ignoré. En cas d'échec, les jeux restants sont conservés et l'action sera retentée à l'exécution suivante."
+                }
               }
             ]
           }
@@ -88,39 +111,49 @@
     },
     {
       "title": "Options",
-      "layout": {
-        "if": "parent.data.action !== 'delete'"
-      },
+      "layout": { "if": "parent.data.action !== 'delete'" },
       "properties": {
         "loadExample": {
           "type": "boolean",
-          "title": "Charger les données d'exemple",
-          "description": "Lors de la création d'un jeu de données, charge les données d'exemple publiées avec le schéma (s'il en a une) comme premières lignes. Aucune donnée n'est rechargée lors des mises à jour, pour ne pas écraser vos ajouts.",
+          "title": "Load the example data",
+          "x-i18n-title": { "fr": "Charger les données d'exemple" },
+          "description": "When creating a dataset, loads the example data published with the schema (if any) as its first rows. No data is reloaded on updates, so as not to overwrite your additions.",
+          "x-i18n-description": {
+            "fr": "Lors de la création d'un jeu de données, charge les données d'exemple publiées avec le schéma (s'il en a une) comme premières lignes. Aucune donnée n'est rechargée lors des mises à jour, pour ne pas écraser vos ajouts."
+          },
           "default": true
         },
         "createdDatasets": {
           "type": "array",
-          "title": "Jeux de données créés",
-          "description": "Suivi technique des jeux de données produits par ce traitement, un par schéma importé. À chaque exécution, ces jeux sont mis à jour au lieu d'en créer de nouveaux.",
+          "title": "Created datasets",
+          "x-i18n-title": { "fr": "Jeux de données créés" },
+          "description": "Technical tracking of the datasets produced by this processing, one per imported schema. On each run these datasets are updated instead of creating new ones.",
+          "x-i18n-description": {
+            "fr": "Suivi technique des jeux de données produits par ce traitement, un par schéma importé. À chaque exécution, ces jeux sont mis à jour au lieu d'en créer de nouveaux."
+          },
           "readOnly": true,
           "items": {
             "type": "object",
             "properties": {
               "schemaName": {
                 "type": "string",
-                "title": "Schéma"
+                "title": "Schema",
+                "x-i18n-title": { "fr": "Schéma" }
               },
               "version": {
                 "type": "string",
-                "title": "Version du schéma"
+                "title": "Schema version",
+                "x-i18n-title": { "fr": "Version du schéma" }
               },
               "datasetId": {
                 "type": "string",
-                "title": "Identifiant du jeu de données"
+                "title": "Dataset identifier",
+                "x-i18n-title": { "fr": "Identifiant du jeu de données" }
               },
               "datasetTitle": {
                 "type": "string",
-                "title": "Titre du jeu de données"
+                "title": "Dataset title",
+                "x-i18n-title": { "fr": "Titre du jeu de données" }
               }
             }
           }
@@ -128,48 +161,67 @@
       }
     },
     {
-      "title": "Indexation",
-      "description": "Capacités techniques des champs des jeux de données produits (recherche textuelle, filtrage exact, tri, agrégation, tuiles vectorielles). Elles sont copiées dans les jeux de données initialisés depuis ces schémas.",
-      "layout": {
-        "if": "parent.data.action !== 'delete'"
+      "title": "Indexing",
+      "x-i18n-title": { "fr": "Indexation" },
+      "description": "Technical capabilities of the fields of the produced datasets (full-text search, exact filtering, sorting, aggregation, vector tiles). They are copied into the datasets initialized from these schemas.",
+      "x-i18n-description": {
+        "fr": "Capacités techniques des champs des jeux de données produits (recherche textuelle, filtrage exact, tri, agrégation, tuiles vectorielles). Elles sont copiées dans les jeux de données initialisés depuis ces schémas."
       },
+      "layout": { "if": "parent.data.action !== 'delete'" },
       "properties": {
         "capabilitiesMode": {
           "type": "string",
-          "title": "Mode d'indexation",
-          "description": "- **Automatique** : adapte les capacités aux informations du schéma. La recherche textuelle est désactivée sur les champs de type code (SIRET, code INSEE, code postal, identifiant...) et sur les champs reconnus par leurs concepts, et le filtrage exact et le tri sont désactivés sur les champs de texte long (description, commentaire...).\n- **Standard** : conserve les capacités par défaut de data-fair sur tous les champs.",
-          "enum": [
-            "auto",
-            "standard"
+          "title": "Indexing mode",
+          "x-i18n-title": { "fr": "Mode d'indexation" },
+          "description": "- **Automatic**: adapts the capabilities to the schema information. Full-text search is disabled on code fields (SIRET, INSEE code, postal code, identifier...) and on fields recognized by their concepts, and exact filtering and sorting are disabled on long text fields (description, comment...).\n- **Standard**: keeps the default data-fair capabilities on every field.",
+          "x-i18n-description": {
+            "fr": "- **Automatique** : adapte les capacités aux informations du schéma. La recherche textuelle est désactivée sur les champs de type code (SIRET, code INSEE, code postal, identifiant...) et sur les champs reconnus par leurs concepts, et le filtrage exact et le tri sont désactivés sur les champs de texte long (description, commentaire...).\n- **Standard** : conserve les capacités par défaut de data-fair sur tous les champs."
+          },
+          "oneOf": [
+            {
+              "const": "auto",
+              "title": "Automatic",
+              "x-i18n-title": { "fr": "Automatique" }
+            },
+            {
+              "const": "standard",
+              "title": "Standard"
+            }
           ],
           "default": "auto"
         },
         "textSearchOnCodes": {
           "type": "boolean",
-          "title": "Recherche textuelle sur les champs de code",
-          "description": "Conserve la recherche textuelle sur les champs de type code (SIRET, code INSEE, code postal...). Par défaut elle est désactivée : la recherche par valeur exacte et le tri restent disponibles.",
+          "title": "Full-text search on code fields",
+          "x-i18n-title": { "fr": "Recherche textuelle sur les champs de code" },
+          "description": "Keeps full-text search on code fields (SIRET, INSEE code, postal code...). It is disabled by default: exact value search and sorting remain available.",
+          "x-i18n-description": {
+            "fr": "Conserve la recherche textuelle sur les champs de type code (SIRET, code INSEE, code postal...). Par défaut elle est désactivée : la recherche par valeur exacte et le tri restent disponibles."
+          },
           "default": false,
-          "layout": {
-            "if": "parent.data.capabilitiesMode !== 'standard'"
-          }
+          "layout": { "if": "parent.data.capabilitiesMode !== 'standard'" }
         },
         "restrictLongText": {
           "type": "boolean",
-          "title": "Restreindre les capacités des textes longs",
-          "description": "Désactive le filtrage sur valeur exacte et le tri sur les champs de texte long (description, commentaire...), pour limiter le volume d'index. La recherche textuelle reste active.",
+          "title": "Restrict the capabilities of long texts",
+          "x-i18n-title": { "fr": "Restreindre les capacités des textes longs" },
+          "description": "Disables exact value filtering and sorting on long text fields (description, comment...), to limit the index size. Full-text search stays active.",
+          "x-i18n-description": {
+            "fr": "Désactive le filtrage sur valeur exacte et le tri sur les champs de texte long (description, commentaire...), pour limiter le volume d'index. La recherche textuelle reste active."
+          },
           "default": true,
-          "layout": {
-            "if": "parent.data.capabilitiesMode !== 'standard'"
-          }
+          "layout": { "if": "parent.data.capabilitiesMode !== 'standard'" }
         },
         "vectorTiles": {
           "type": "boolean",
-          "title": "Préparer les tuiles vectorielles",
-          "description": "Précalcule les éléments utiles au rendu cartographique des géométries. À activer pour des données géographiques denses : augmente le temps d'indexation et le volume indexé.",
+          "title": "Prepare vector tiles",
+          "x-i18n-title": { "fr": "Préparer les tuiles vectorielles" },
+          "description": "Precomputes what is needed to render geometries on a map. Enable it for dense geographic data: increases the indexing time and the indexed volume.",
+          "x-i18n-description": {
+            "fr": "Précalcule les éléments utiles au rendu cartographique des géométries. À activer pour des données géographiques denses : augmente le temps d'indexation et le volume indexé."
+          },
           "default": false,
-          "layout": {
-            "if": "parent.data.capabilitiesMode !== 'standard'"
-          }
+          "layout": { "if": "parent.data.capabilitiesMode !== 'standard'" }
         }
       }
     }
